@@ -128,5 +128,3 @@ def test_extract_and_validate_agree(monkeypatch):
 
 def test_new_settings_have_sensible_defaults():
     assert main.settings.validation_tolerance == 0.01
-    assert main.settings.known_suppliers_file.name == "known_suppliers.json"
-    assert main.known_suppliers

@@ -5,6 +5,8 @@ from sqlalchemy.exc import OperationalError
 from db import check_connection, get_engine
 
 HINTS = [
+    ("relation", "The tables are missing. Run: uv run alembic upgrade head"),
+    ("no such table", "The tables are missing. Run: uv run alembic upgrade head"),
     ("password authentication failed", "The database refused the login. Check the user and password in DATABASE_URL."),
     ("authentication failed", "The database refused the login. Check the user and password in DATABASE_URL."),
     ("getaddrinfo failed", "The database host name could not be found. Check the host in DATABASE_URL."),

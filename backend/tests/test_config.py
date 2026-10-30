@@ -23,7 +23,6 @@ def test_defaults(monkeypatch):
     s = make()
     assert s.max_invoice_age_days == 365
     assert s.validation_tolerance == 0.01
-    assert s.known_suppliers_file == BASE_DIR / "known_suppliers.json"
 
 
 @pytest.mark.parametrize("name, value", [("max_invoice_age_days", 0), ("max_upload_mb", 0), ("validation_tolerance", -0.5)])
@@ -34,15 +33,6 @@ def test_bad_values_are_rejected(name, value):
 
 def test_zero_tolerance_is_allowed():
     assert make(validation_tolerance=0).validation_tolerance == 0
-
-
-def test_relative_supplier_file_is_resolved_against_the_backend_folder():
-    assert make(known_suppliers_file="data/my_suppliers.json").known_suppliers_file == BASE_DIR / "data" / "my_suppliers.json"
-
-
-def test_absolute_supplier_file_is_kept(tmp_path):
-    path = Path(tmp_path) / "s.json"
-    assert make(known_suppliers_file=path).known_suppliers_file == path
 
 
 def test_access_key_is_required(monkeypatch):

@@ -1,24 +1,22 @@
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import Session
 
 from config import get_settings
+from db import get_db
 from extractor import ExtractionError, extract_invoice
 from pdf_reader import PdfReadError
 from schemas import Flag, InvoiceData
 from security import AccessKeyMiddleware
-from suppliers import SupplierListError, load_known_suppliers
+from supplier_store import list_supplier_names
 from validation import validate
 
 settings = get_settings()
 
 PUBLIC_PATHS = {"/health"}
 DOCS_PATHS = {"/docs", "/redoc", "/openapi.json", "/docs/oauth2-redirect"}
-
-try:
-    known_suppliers = load_known_suppliers(settings.known_suppliers_file)
-except SupplierListError as exc:
-    raise SystemExit(f"\nDocFlow cannot start: {exc}\n")
 
 app = FastAPI(
     title="DocFlow API",
@@ -53,7 +51,13 @@ class ValidateResponse(BaseModel):
     flags: list[Flag] = Field(default_factory=list)
 
 
-def check_invoice(invoice: InvoiceData) -> list[Flag]:
+def check_invoice(invoice: InvoiceData, session: Session) -> list[Flag]:
+    try:
+        known_suppliers = list_supplier_names(session)
+    except OperationalError as exc:
+        raise HTTPException(
+            status_code=503, detail="The database is not available. Please try again in a moment."
+        ) from exc
     return validate(
         invoice,
         max_age_days=settings.max_invoice_age_days,
@@ -72,7 +76,7 @@ def check_access():
     return {"status": "ok"}
 
 @app.post("/extract", response_model=ExtractResponse)
-def extract(file: UploadFile | None = File(default=None)):
+def extract(file: UploadFile | None = File(default=None), session: Session = Depends(get_db)):
     if file is None:
         raise HTTPException(status_code=400, detail="No file uploaded. Send a PDF in the 'file' field.")
 
@@ -99,11 +103,11 @@ def extract(file: UploadFile | None = File(default=None)):
     return ExtractResponse(
         filename=file.filename or "upload.pdf",
         invoice=invoice,
-        flags=check_invoice(invoice),
+                flags=check_invoice(invoice, session),
     )
 
 
 @app.post("/validate", response_model=ValidateResponse)
-def validate_invoice(invoice: InvoiceData):
+def validate_invoice(invoice: InvoiceData, session: Session = Depends(get_db)):
     """Re-check an invoice the user has edited. Takes the invoice as the request body."""
-    return ValidateResponse(flags=check_invoice(invoice))
+    return ValidateResponse(flags=check_invoice(invoice, session))

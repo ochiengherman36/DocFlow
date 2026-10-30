@@ -4,8 +4,6 @@ from pathlib import Path
 from pydantic import SecretStr, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from suppliers import DEFAULT_SUPPLIERS_FILE
-
 BASE_DIR = Path(__file__).parent
 ENV_FILE = BASE_DIR / ".env"
 MIN_ACCESS_KEY_LENGTH = 16
@@ -22,7 +20,6 @@ class Settings(BaseSettings):
     max_upload_mb: int = 10
     max_invoice_age_days: int = 365
     validation_tolerance: float = 0.01
-    known_suppliers_file: Path = DEFAULT_SUPPLIERS_FILE
     enable_api_docs: bool = False
 
     @field_validator("anthropic_api_key")
@@ -79,11 +76,6 @@ class Settings(BaseSettings):
         if v < 0:
             raise ValueError("must not be negative")
         return v
-
-    @field_validator("known_suppliers_file")
-    @classmethod
-    def relative_to_backend_folder(cls, v: Path) -> Path:
-        return v if v.is_absolute() else BASE_DIR / v
 
 
 @lru_cache
