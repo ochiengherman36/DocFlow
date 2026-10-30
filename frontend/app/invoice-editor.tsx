@@ -10,7 +10,7 @@ import FlagList from "./flag-list";
 
 const RECHECK_DELAY_MS = 400;
 
-const inputBase = "w-full rounded border bg-transparent px-2 py-1";
+const inputBase = "rounded border bg-transparent px-2 py-1";
 const numberBase = `${inputBase} text-right`;
 
 const BORDER: Record<Tone, string> = {
@@ -48,7 +48,6 @@ const TOTAL_FIELDS: { name: keyof DraftTotals; label: string }[] = [
   { name: "total", label: "Total" },
 ];
 
-// Attributes that tie an input to its messages for screen readers.
 function ariaFor(field: string, flags: Flag[] | undefined) {
   return {
     "aria-invalid": toneOf(flags) === "error" ? true : undefined,
@@ -161,7 +160,7 @@ export default function InvoiceEditor({
                       )
                     }
                     maxLength={field.name === "currency" ? 3 : undefined}
-                    className={`${inputBase} ${BORDER[toneOf(own)]}`}
+                    className={`${inputBase} w-full ${BORDER[toneOf(own)]}`}
                     {...ariaFor(field.name, own)}
                   />
                   <FieldFlags id={flagId(field.name)} flags={own} />
@@ -208,8 +207,8 @@ export default function InvoiceEditor({
                             onChange={(event) => setLine(index, field.name, event.target.value)}
                             className={`${
                               field.name === "description"
-                                ? `${inputBase} min-w-32`
-                                : `${numberBase} ${field.name === "quantity" ? "w-20" : "w-28"}`
+                                ? `${inputBase} w-full min-w-32`
+                                : `${numberBase} ${field.name === "quantity" ? "w-24" : "w-32"}`
                             } ${BORDER[toneOf(own)]}`}
                             {...ariaFor(`line-${index}`, lineFlags)}
                             aria-invalid={toneOf(own) === "error" ? true : undefined}
@@ -243,7 +242,7 @@ export default function InvoiceEditor({
             return (
               <div key={field.name} className="flex flex-col gap-1">
                 <div className="flex items-center justify-end gap-4">
-                  <label htmlFor={`totals-${field.name}`} className="text-right">
+                  <label htmlFor={`totals-${field.name}`} className="whitespace-nowrap text-right">
                     {field.label} {draft.currency}
                   </label>
                   <input
@@ -252,7 +251,7 @@ export default function InvoiceEditor({
                     inputMode="decimal"
                     value={draft.totals[field.name]}
                     onChange={(event) => setTotal(field.name, event.target.value)}
-                    className={`${numberBase} w-36 ${BORDER[toneOf(own)]}`}
+                    className={`${numberBase} w-36 shrink-0 ${BORDER[toneOf(own)]}`}
                     {...ariaFor(key, own)}
                   />
                 </div>
