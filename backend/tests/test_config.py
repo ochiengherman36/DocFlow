@@ -9,11 +9,12 @@ REQUIRED = {
     "anthropic_api_key": "k",
     "anthropic_model": "m",
     "frontend_origin": "http://localhost:3000",
+    "access_key": "a-long-enough-test-key",
 }
 
 
 def make(**extra) -> Settings:
-    return Settings(_env_file=None, **REQUIRED, **extra)
+    return Settings(_env_file=None, **{**REQUIRED, **extra})
 
 
 def test_defaults(monkeypatch):
@@ -41,3 +42,28 @@ def test_relative_supplier_file_is_resolved_against_the_backend_folder():
 def test_absolute_supplier_file_is_kept(tmp_path):
     path = Path(tmp_path) / "s.json"
     assert make(known_suppliers_file=path).known_suppliers_file == path
+
+
+def test_access_key_is_required(monkeypatch):
+    monkeypatch.delenv("ACCESS_KEY", raising=False)
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, anthropic_api_key="k", anthropic_model="m", frontend_origin="http://localhost:3000")
+
+
+@pytest.mark.parametrize("key", ["", "   ", "short", "x" * 15])
+def test_short_or_blank_access_key_is_rejected(key):
+    with pytest.raises(ValidationError, match="at least 16"):
+        make(access_key=key)
+
+
+def test_access_key_of_16_characters_is_accepted():
+    assert make(access_key="x" * 16).access_key.get_secret_value() == "x" * 16
+
+
+def test_access_key_is_not_shown_when_settings_are_printed():
+    assert "a-long-enough-test-key" not in repr(make())
+
+
+def test_api_docs_are_off_by_default(monkeypatch):
+    monkeypatch.delenv("ENABLE_API_DOCS", raising=False)
+    assert make().enable_api_docs is False

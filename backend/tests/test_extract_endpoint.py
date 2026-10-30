@@ -9,7 +9,8 @@ from pdf_reader import PdfReadError
 from schemas import InvoiceData
 
 SAMPLES = Path(__file__).parent.parent / "samples"
-client = TestClient(main.app)
+HEADERS = {"X-Access-Key": main.settings.access_key.get_secret_value()}
+client = TestClient(main.app, headers=HEADERS)
 
 
 @pytest.fixture(autouse=True)

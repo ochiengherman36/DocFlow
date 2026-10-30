@@ -6,19 +6,32 @@ from config import get_settings
 from extractor import ExtractionError, extract_invoice
 from pdf_reader import PdfReadError
 from schemas import Flag, InvoiceData
+from security import AccessKeyMiddleware
 from suppliers import SupplierListError, load_known_suppliers
 from validation import validate
 
 settings = get_settings()
 
-# Read once at startup. A missing or broken list stops the app with a clear message
-# instead of quietly switching the supplier check off.
+PUBLIC_PATHS = {"/health"}
+DOCS_PATHS = {"/docs", "/redoc", "/openapi.json", "/docs/oauth2-redirect"}
+
 try:
     known_suppliers = load_known_suppliers(settings.known_suppliers_file)
 except SupplierListError as exc:
     raise SystemExit(f"\nDocFlow cannot start: {exc}\n")
 
-app = FastAPI(title="DocFlow API")
+app = FastAPI(
+    title="DocFlow API",
+    docs_url="/docs" if settings.enable_api_docs else None,
+    redoc_url="/redoc" if settings.enable_api_docs else None,
+    openapi_url="/openapi.json" if settings.enable_api_docs else None,
+)
+
+app.add_middleware(
+    AccessKeyMiddleware,
+    access_key=settings.access_key.get_secret_value(),
+    public_paths=PUBLIC_PATHS | DOCS_PATHS if settings.enable_api_docs else PUBLIC_PATHS,
+)
 
 app.add_middleware(
     CORSMiddleware,

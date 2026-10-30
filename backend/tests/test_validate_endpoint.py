@@ -11,7 +11,8 @@ SAMPLES = Path(__file__).parent.parent / "samples"
 EXPECTED = json.loads((SAMPLES / "expected.json").read_text(encoding="utf-8"))
 EXPECTED_FLAGS = json.loads((SAMPLES / "expected_flags.json").read_text(encoding="utf-8"))
 
-client = TestClient(main.app)
+HEADERS = {"X-Access-Key": main.settings.access_key.get_secret_value()}
+client = TestClient(main.app, headers=HEADERS)
 
 
 def invoice_from_expected(entry: dict) -> InvoiceData:
