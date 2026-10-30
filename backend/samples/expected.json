@@ -1,0 +1,89 @@
+{
+  "invoice_digital.pdf": {
+    "supplier": "Kijani Fuel Distributors Ltd",
+    "invoice_number": "KFD-2026-0412",
+    "date": "2026-10-12",
+    "currency": "KES",
+    "line_items": [
+      {
+        "description": "Diesel (AGO)",
+        "quantity": 2000,
+        "unit_price": 198.5,
+        "amount": 397000.0
+      },
+      {
+        "description": "Super Petrol (PMS)",
+        "quantity": 500,
+        "unit_price": 212.75,
+        "amount": 106375.0
+      },
+      {
+        "description": "Delivery charge",
+        "quantity": 1,
+        "unit_price": 3500.0,
+        "amount": 3500.0
+      }
+    ],
+    "subtotal": 506875.0,
+    "tax": 81100.0,
+    "total": 587975.0
+  },
+  "invoice_scanned.pdf": {
+    "supplier": "Mwangaza Office Supplies",
+    "invoice_number": "MOS/INV/7781",
+    "date": "2026-10-20",
+    "currency": "KES",
+    "line_items": [
+      {
+        "description": "A4 Paper Ream (80gsm)",
+        "quantity": 40,
+        "unit_price": 650.0,
+        "amount": 26000.0
+      },
+      {
+        "description": "Ballpoint Pens Box of 50",
+        "quantity": 6,
+        "unit_price": 480.0,
+        "amount": 2880.0
+      },
+      {
+        "description": "Stapler Heavy Duty",
+        "quantity": 3,
+        "unit_price": 1250.0,
+        "amount": 3750.0
+      }
+    ],
+    "subtotal": 32630.0,
+    "tax": 5220.8,
+    "total": 37850.8
+  },
+  "invoice_poor_quality.pdf": {
+    "supplier": "Twiga Auto Spares",
+    "invoice_number": "TAS-30915",
+    "date": "2026-10-25",
+    "currency": "KES",
+    "line_items": [
+      {
+        "description": "Brake Pads Set",
+        "quantity": 4,
+        "unit_price": 3200.0,
+        "amount": 12800.0
+      },
+      {
+        "description": "Engine Oil 20W-50 (5L)",
+        "quantity": 10,
+        "unit_price": 4100.0,
+        "amount": 41000.0
+      },
+      {
+        "description": "Oil Filter",
+        "quantity": 10,
+        "unit_price": 650.0,
+        "amount": 6500.0
+      }
+    ],
+    "subtotal": 60300.0,
+    "tax": 9648.0,
+    "total": 69948.0
+  }
+}
