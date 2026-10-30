@@ -27,6 +27,9 @@ def make_invoice(**changes) -> InvoiceData:
 def codes(flags):
     return [(f.code, f.field) for f in flags]
 
+def only(flags, code):
+    """Keep only the flags of one kind, so a test is not affected by unrelated checks."""
+    return [f for f in flags if f.code is code]
 
 def test_clean_invoice_raises_no_flags():
     assert validate(make_invoice(), today=TODAY) == []
@@ -66,10 +69,9 @@ def test_no_line_items_is_an_error():
     ],
 )
 def test_negative_amount_is_a_warning(changes, field):
-    flags = validate(make_invoice(**changes), today=TODAY)
+    flags = only(validate(make_invoice(**changes), today=TODAY), FlagCode.NEGATIVE_VALUE)
     assert codes(flags) == [(FlagCode.NEGATIVE_VALUE, field)]
     assert flags[0].severity is Severity.WARNING
-
 
 def test_negative_flag_points_at_the_right_line():
     items = [
@@ -77,7 +79,7 @@ def test_negative_flag_points_at_the_right_line():
         {"quantity": 1, "unit_price": 5, "amount": 5},
         {"quantity": 1, "unit_price": 5, "amount": -5},
     ]
-    flags = validate(make_invoice(line_items=items), today=TODAY)
+    flags = only(validate(make_invoice(line_items=items), today=TODAY), FlagCode.NEGATIVE_VALUE)
     assert codes(flags) == [(FlagCode.NEGATIVE_VALUE, "line_items[2].amount")]
 
 
@@ -157,24 +159,17 @@ def invoice_from_expected(entry: dict) -> InvoiceData:
 
 EXPECTED = json.loads((SAMPLES / "expected.json").read_text(encoding="utf-8"))
 EXPECTED_FLAGS = json.loads((SAMPLES / "expected_flags.json").read_text(encoding="utf-8"))
-BASIC_CODES = {
-    FlagCode.MISSING_FIELD,
-    FlagCode.NO_LINE_ITEMS,
-    FlagCode.NEGATIVE_VALUE,
-    FlagCode.DATE_IN_FUTURE,
-    FlagCode.DATE_TOO_OLD,
-    FlagCode.UNKNOWN_CURRENCY,
-}
+IMPLEMENTED_CODES = set(FlagCode) - {FlagCode.SUPPLIER_UNKNOWN, FlagCode.SUPPLIER_NEAR_MATCH}
 
 
 @pytest.mark.parametrize("name", list(EXPECTED))
-def test_samples_raise_exactly_the_expected_basic_flags(name):
-    """For each sample, the flags from this step must equal the expected ones of the same kind."""
+def test_samples_raise_exactly_the_expected_flags(name):
+    """For each sample, the flags raised must equal the expected ones of the kinds implemented so far."""
     result = validate(invoice_from_expected(EXPECTED[name]), today=TODAY)
     got = {(f.code.value, f.severity.value, f.field) for f in result}
     want = {
         (e["code"], e["severity"], e["field"])
         for e in EXPECTED_FLAGS[name]
-        if FlagCode(e["code"]) in BASIC_CODES
+        if FlagCode(e["code"]) in IMPLEMENTED_CODES
     }
     assert got == want

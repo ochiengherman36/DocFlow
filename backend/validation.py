@@ -3,8 +3,9 @@ import datetime
 from schemas import Flag, FlagCode, InvoiceData, Severity
 
 DEFAULT_MAX_AGE_DAYS = 365
+DEFAULT_TOLERANCE = 0.01 
 
-# Currencies we expect to see. I will update.
+# Currencies we expect to see; add a code here when a new market appears.
 KNOWN_CURRENCIES = frozenset(
     {
         "KES", "UGX", "TZS", "RWF", "ETB", "NGN", "GHS", "ZAR", "EGP", "MAD",
@@ -32,6 +33,60 @@ def _check_missing(invoice: InvoiceData) -> list[Flag]:
     ]
     if not invoice.line_items:
         flags.append(_flag(FlagCode.NO_LINE_ITEMS, Severity.ERROR, "line_items", "No line items were found."))
+    return flags
+
+
+def _differs(a: float, b: float, tolerance: float) -> bool:
+    # The small extra margin stops float noise from flagging a difference of exactly the tolerance.
+    return abs(a - b) > tolerance + 1e-9
+
+
+def _check_math(invoice: InvoiceData, tolerance: float) -> list[Flag]:
+    """Check the invoice adds up. A check is skipped when a number it needs is missing."""
+    flags: list[Flag] = []
+
+    for index, item in enumerate(invoice.line_items):
+        if item.quantity is None or item.unit_price is None or item.amount is None:
+            continue
+        expected = item.quantity * item.unit_price
+        if _differs(expected, item.amount, tolerance):
+            flags.append(
+                _flag(
+                    FlagCode.LINE_AMOUNT_MISMATCH,
+                    Severity.ERROR,
+                    f"line_items[{index}].amount",
+                    f"{item.quantity:g} x {item.unit_price:,.2f} = {expected:,.2f}, "
+                    f"but the line amount is {item.amount:,.2f}.",
+                )
+            )
+
+    totals = invoice.totals
+    amounts = [item.amount for item in invoice.line_items]
+    if amounts and None not in amounts and totals.subtotal is not None:
+        line_sum = sum(amounts)
+        if _differs(line_sum, totals.subtotal, tolerance * len(amounts)):
+            flags.append(
+                _flag(
+                    FlagCode.SUBTOTAL_MISMATCH,
+                    Severity.ERROR,
+                    "totals.subtotal",
+                    f"The line amounts add up to {line_sum:,.2f}, but the subtotal is {totals.subtotal:,.2f}.",
+                )
+            )
+
+    if totals.subtotal is not None and totals.tax is not None and totals.total is not None:
+        expected_total = totals.subtotal + totals.tax
+        if _differs(expected_total, totals.total, tolerance):
+            flags.append(
+                _flag(
+                    FlagCode.TOTAL_MISMATCH,
+                    Severity.ERROR,
+                    "totals.total",
+                    f"Subtotal {totals.subtotal:,.2f} + tax {totals.tax:,.2f} = {expected_total:,.2f}, "
+                    f"but the total is {totals.total:,.2f}.",
+                )
+            )
+
     return flags
 
 
@@ -97,11 +152,13 @@ def validate(
     *,
     today: datetime.date | None = None,
     max_age_days: int = DEFAULT_MAX_AGE_DAYS,
+     tolerance: float = DEFAULT_TOLERANCE,
 ) -> list[Flag]:
     """Return the problems found on an invoice. Never raises, never calls Claude."""
     today = today or datetime.date.today()
     return [
         *_check_missing(invoice),
+        *_check_math(invoice, tolerance),
         *_check_date(invoice, today, max_age_days),
         *_check_currency(invoice),
         *_check_negatives(invoice),
