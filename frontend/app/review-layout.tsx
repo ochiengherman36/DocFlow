@@ -1,6 +1,6 @@
 import type { ExtractResult } from "@/lib/api";
 import FlagList from "./flag-list";
-import InvoiceResult from "./invoice-result";
+import InvoiceEditor from "./invoice-editor";
 import PdfPreview from "./pdf-preview";
 
 export default function ReviewLayout({
@@ -17,7 +17,7 @@ export default function ReviewLayout({
       <PdfPreview url={fileUrl} name={fileName} />
       <div className="flex min-w-0 flex-col gap-8">
         <FlagList flags={result.flags} />
-        <InvoiceResult result={result} />
+        <InvoiceEditor invoice={result.invoice} />
       </div>
     </div>
   );
