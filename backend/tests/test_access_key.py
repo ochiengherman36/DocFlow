@@ -148,3 +148,10 @@ def test_the_request_body_is_never_read_for_a_refused_request():
     asyncio.run(middleware(scope, receive, send))
     assert sent[0]["type"] == "http.response.start"
     assert sent[0]["status"] == 401
+
+def test_auth_check_refuses_without_a_key_and_accepts_the_right_one():
+    assert anonymous.get("/auth/check").status_code == 401
+    assert anonymous.get("/auth/check", headers={"X-Access-Key": "wrong"}).json() == {"detail": INVALID}
+    r = authorised.get("/auth/check")
+    assert r.status_code == 200
+    assert r.json() == {"status": "ok"}

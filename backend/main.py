@@ -66,6 +66,10 @@ def check_invoice(invoice: InvoiceData) -> list[Flag]:
 def health():
     return {"status": "ok"}
 
+@app.get("/auth/check")
+def check_access():
+    """Reaching this means the access key was accepted. The key check itself is the middleware's job."""
+    return {"status": "ok"}
 
 @app.post("/extract", response_model=ExtractResponse)
 def extract(file: UploadFile | None = File(default=None)):
