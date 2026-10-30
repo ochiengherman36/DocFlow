@@ -1,4 +1,5 @@
 from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from config import get_settings
@@ -9,6 +10,13 @@ from schemas import InvoiceData
 settings = get_settings()
 
 app = FastAPI(title="DocFlow API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[settings.frontend_origin],
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
 
 PDF_MAGIC = b"%PDF-"
 
