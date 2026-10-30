@@ -2,6 +2,9 @@
 
 import { useState } from "react";
 
+import { ApiError, extractInvoice, type ExtractResult } from "@/lib/api";
+import InvoiceResult from "./invoice-result";
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
 function formatSize(bytes: number): string {
@@ -12,6 +15,8 @@ function formatSize(bytes: number): string {
 export default function UploadForm() {
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<ExtractResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   if (!API_URL) {
     return (
@@ -26,12 +31,21 @@ export default function UploadForm() {
     event.preventDefault();
     if (!file) return;
     setLoading(true);
+    setResult(null);
+    setError(null);
     try {
-      // Placeholder: step A10 replaces this wait with the real call to `${API_URL}/extract`.
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      setResult(await extractInvoice(file, API_URL!));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
     } finally {
       setLoading(false);
     }
+  }
+
+  function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    setFile(event.target.files?.[0] ?? null);
+    setResult(null);
+    setError(null);
   }
 
   return (
@@ -44,7 +58,7 @@ export default function UploadForm() {
         type="file"
         accept="application/pdf,.pdf"
         disabled={loading}
-        onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+        onChange={handleFileChange}
         className="rounded border border-zinc-300 p-2 dark:border-zinc-700"
       />
       {file && (
@@ -59,6 +73,17 @@ export default function UploadForm() {
       >
         {loading ? "Reading invoice…" : "Upload"}
       </button>
+      {loading && (
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          Scanned files can take 10 to 20 seconds.
+        </p>
+      )}
+      {error && (
+        <p role="alert" className="rounded border border-red-500 p-4 text-red-600">
+          {error}
+        </p>
+      )}
+      {result && <InvoiceResult result={result} />}
     </form>
   );
 }
