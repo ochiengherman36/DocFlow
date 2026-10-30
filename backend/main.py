@@ -1,11 +1,11 @@
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from config import get_settings
 from extractor import ExtractionError, extract_invoice
 from pdf_reader import PdfReadError
-from schemas import InvoiceData
+from schemas import Flag, InvoiceData
 
 settings = get_settings()
 
@@ -24,6 +24,7 @@ PDF_MAGIC = b"%PDF-"
 class ExtractResponse(BaseModel):
     filename: str
     invoice: InvoiceData
+    flags: list[Flag] = Field(default_factory=list)
 
 
 @app.get("/health")

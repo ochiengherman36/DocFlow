@@ -31,6 +31,7 @@ def test_valid_digital_pdf():
     assert body["filename"] == "invoice_digital.pdf"
     assert body["invoice"]["supplier"] == "Test Supplier"
     assert body["invoice"]["line_items"] == []
+    assert body["flags"] == []
 
 
 def test_valid_scanned_pdf():
