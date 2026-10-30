@@ -8,3 +8,4 @@ os.environ["MAX_UPLOAD_MB"] = "1"
 # from appearing in tests when this suite is run in a later year.
 os.environ["MAX_INVOICE_AGE_DAYS"] = "36500"
 os.environ["ACCESS_KEY"] = "test-access-key-0123456789"
+os.environ["DATABASE_URL"] = "sqlite://"

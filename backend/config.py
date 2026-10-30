@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     anthropic_model: str
     access_key: SecretStr
     frontend_origin: str
-    database_url: SecretStr | None = None
+    database_url: SecretStr 
     max_upload_mb: int = 10
     max_invoice_age_days: int = 365
     validation_tolerance: float = 0.01
@@ -31,6 +31,17 @@ class Settings(BaseSettings):
         if not v.get_secret_value().strip():
             raise ValueError("must not be empty")
         return v
+
+    @field_validator("database_url")
+    @classmethod
+    def database_url_usable(cls, v: SecretStr) -> SecretStr:
+        url = v.get_secret_value().strip()
+        for prefix in ("postgres://", "postgresql://"):
+            if url.startswith(prefix):
+                url = "postgresql+psycopg://" + url[len(prefix):]
+        if not url.startswith(("postgresql+psycopg://", "sqlite://")):
+            raise ValueError("must be a PostgreSQL address starting with postgresql://")
+        return SecretStr(url)
 
     @field_validator("access_key")
     @classmethod

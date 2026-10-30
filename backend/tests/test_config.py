@@ -10,6 +10,7 @@ REQUIRED = {
     "anthropic_model": "m",
     "frontend_origin": "http://localhost:3000",
     "access_key": "a-long-enough-test-key",
+    "database_url": "sqlite://",
 }
 
 
@@ -47,7 +48,7 @@ def test_absolute_supplier_file_is_kept(tmp_path):
 def test_access_key_is_required(monkeypatch):
     monkeypatch.delenv("ACCESS_KEY", raising=False)
     with pytest.raises(ValidationError):
-        Settings(_env_file=None, anthropic_api_key="k", anthropic_model="m", frontend_origin="http://localhost:3000")
+        Settings(_env_file=None, anthropic_api_key="k", anthropic_model="m", frontend_origin="http://localhost:3000", database_url="sqlite://")
 
 
 @pytest.mark.parametrize("key", ["", "   ", "short", "x" * 15])
@@ -67,3 +68,41 @@ def test_access_key_is_not_shown_when_settings_are_printed():
 def test_api_docs_are_off_by_default(monkeypatch):
     monkeypatch.delenv("ENABLE_API_DOCS", raising=False)
     assert make().enable_api_docs is False
+
+
+def test_database_url_is_required(monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    with pytest.raises(ValidationError, match="database_url"):
+        Settings(
+            _env_file=None,
+            anthropic_api_key="k",
+            anthropic_model="m",
+            frontend_origin="http://localhost:3000",
+            access_key="a-long-enough-test-key",
+        )
+
+
+@pytest.mark.parametrize(
+    "given",
+    [
+        "postgresql://user:pass@ep-cool-name.eu-central-1.aws.neon.tech/neondb?sslmode=require",
+        "postgres://user:pass@ep-cool-name.eu-central-1.aws.neon.tech/neondb?sslmode=require",
+        "postgresql+psycopg://user:pass@ep-cool-name.eu-central-1.aws.neon.tech/neondb?sslmode=require",
+        "  postgresql://user:pass@ep-cool-name.eu-central-1.aws.neon.tech/neondb?sslmode=require  ",
+    ],
+)
+def test_neon_style_addresses_are_accepted_and_use_the_psycopg_driver(given):
+    url = make(database_url=given).database_url.get_secret_value()
+    assert url == "postgresql+psycopg://user:pass@ep-cool-name.eu-central-1.aws.neon.tech/neondb?sslmode=require"
+
+
+@pytest.mark.parametrize("bad", ["", "   ", "mysql://u:p@host/db", "localhost", "https://example.com", "file.db"])
+def test_other_database_addresses_are_rejected(bad):
+    with pytest.raises(ValidationError, match="PostgreSQL address"):
+        make(database_url=bad)
+
+
+def test_database_password_is_not_shown_when_settings_are_printed():
+    s = make(database_url="postgresql://user:s3cret-pass@host/db")
+    assert "s3cret-pass" not in repr(s)
+    assert "s3cret-pass" not in str(s)
