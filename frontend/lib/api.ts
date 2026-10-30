@@ -20,9 +20,33 @@ export type Invoice = {
   totals: Totals;
 };
 
+export type Severity = "error" | "warning";
+
+export type FlagCode =
+  | "missing_field"
+  | "no_line_items"
+  | "line_amount_mismatch"
+  | "subtotal_mismatch"
+  | "total_mismatch"
+  | "negative_value"
+  | "date_in_future"
+  | "date_too_old"
+  | "unknown_currency"
+  | "supplier_unknown"
+  | "supplier_near_match";
+
+
+export type Flag = {
+  code: FlagCode;
+  severity: Severity;
+  field: string;
+  message: string;
+};
+
 export type ExtractResult = {
   filename: string;
   invoice: Invoice;
+  flags: Flag[];
 };
 
 export class ApiError extends Error {}
@@ -51,7 +75,8 @@ export async function extractInvoice(file: File, apiUrl: string): Promise<Extrac
   if (!res.ok) throw new ApiError(await errorMessage(res));
 
   try {
-    return (await res.json()) as ExtractResult;
+    const data = (await res.json()) as ExtractResult;
+    return { ...data, flags: data.flags ?? [] };
   } catch {
     throw new ApiError("The server sent a response that could not be read.");
   }

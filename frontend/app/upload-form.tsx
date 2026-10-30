@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { ApiError, extractInvoice, type ExtractResult } from "@/lib/api";
+import FlagList from "./flag-list";
 import InvoiceResult from "./invoice-result";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
@@ -83,7 +84,12 @@ export default function UploadForm() {
           {error}
         </p>
       )}
-      {result && <InvoiceResult result={result} />}
+      {result && (
+        <>
+           <FlagList flags={result.flags} />
+          <InvoiceResult result={result} />
+        </>
+      )}
     </form>
   );
 }
