@@ -19,7 +19,7 @@ export default function InvoiceResult({ result }: { result: ExtractResult }) {
   const currency = invoice.currency ?? "";
 
   return (
-    <section className="mt-10 flex flex-col gap-6" aria-label="Extracted invoice">
+    <section className="flex flex-col gap-6" aria-label="Extracted invoice">
       <h2 className="text-xl font-semibold">Extracted data</h2>
 
       <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2">

@@ -3,8 +3,7 @@
 import { useState } from "react";
 
 import { ApiError, extractInvoice, type ExtractResult } from "@/lib/api";
-import FlagList from "./flag-list";
-import InvoiceResult from "./invoice-result";
+import ReviewLayout from "./review-layout";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
@@ -18,6 +17,7 @@ export default function UploadForm() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ExtractResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   if (!API_URL) {
     return (
@@ -44,52 +44,56 @@ export default function UploadForm() {
   }
 
   function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
-    setFile(event.target.files?.[0] ?? null);
+    const chosen = event.target.files?.[0] ?? null;
+    // Release the previous temporary address before making a new one.
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPreviewUrl(chosen ? URL.createObjectURL(chosen) : null);
+    setFile(chosen);
     setResult(null);
     setError(null);
   }
 
   return (
-    <form onSubmit={handleSubmit} className="mt-8 flex flex-col gap-4">
-      <label htmlFor="invoice" className="font-medium">
-        Invoice PDF
-      </label>
-      <input
-        id="invoice"
-        type="file"
-        accept="application/pdf,.pdf"
-        disabled={loading}
-        onChange={handleFileChange}
-        className="rounded border border-zinc-300 p-2 dark:border-zinc-700"
-      />
-      {file && (
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          {file.name} ({formatSize(file.size)})
-        </p>
+    <div className="mt-8">
+      <form onSubmit={handleSubmit} className="flex max-w-2xl flex-col gap-4">
+        <label htmlFor="invoice" className="font-medium">
+          Invoice PDF
+        </label>
+        <input
+          id="invoice"
+          type="file"
+          accept="application/pdf,.pdf"
+          disabled={loading}
+          onChange={handleFileChange}
+          className="rounded border border-zinc-300 p-2 dark:border-zinc-700"
+        />
+        {file && (
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+            {file.name} ({formatSize(file.size)})
+          </p>
+        )}
+        <button
+          type="submit"
+          disabled={!file || loading}
+          className="w-fit rounded bg-foreground px-5 py-2 font-medium text-background disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {loading ? "Reading invoice…" : "Upload"}
+        </button>
+        {loading && (
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+            Scanned files can take 10 to 20 seconds.
+          </p>
+        )}
+        {error && (
+          <p role="alert" className="rounded border border-red-500 p-4 text-red-600">
+            {error}
+          </p>
+        )}
+      </form>
+
+      {result && file && previewUrl && (
+        <ReviewLayout fileUrl={previewUrl} fileName={file.name} result={result} />
       )}
-      <button
-        type="submit"
-        disabled={!file || loading}
-        className="w-fit rounded bg-foreground px-5 py-2 font-medium text-background disabled:cursor-not-allowed disabled:opacity-40"
-      >
-        {loading ? "Reading invoice…" : "Upload"}
-      </button>
-      {loading && (
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          Scanned files can take 10 to 20 seconds.
-        </p>
-      )}
-      {error && (
-        <p role="alert" className="rounded border border-red-500 p-4 text-red-600">
-          {error}
-        </p>
-      )}
-      {result && (
-        <>
-           <FlagList flags={result.flags} />
-          <InvoiceResult result={result} />
-        </>
-      )}
-    </form>
+    </div>
   );
 }

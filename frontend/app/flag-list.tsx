@@ -7,7 +7,7 @@ function plural(count: number, word: string): string {
 export default function FlagList({ flags }: { flags: Flag[] }) {
   if (flags.length === 0) {
     return (
-      <p className="mt-10 rounded border border-green-600 p-4 text-green-600">
+      <p className="rounded border border-green-600 p-4 text-green-600">
         No problems found. The invoice adds up and nothing is missing.
       </p>
     );
@@ -23,7 +23,7 @@ export default function FlagList({ flags }: { flags: Flag[] }) {
     .join(", ");
 
   return (
-    <section className="mt-10" aria-label="Checks">
+    <section aria-label="Checks">
       <h2 className="text-xl font-semibold">Checks: {summary}</h2>
       <ul className="mt-3 flex flex-col gap-2">
         {flags.map((flag, index) => (
