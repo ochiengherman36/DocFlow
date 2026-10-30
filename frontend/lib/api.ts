@@ -1,4 +1,5 @@
 import type { Draft } from "./draft";
+import { clearAccessKey, getAccessKey } from "./session";
 
 export type LineItem = {
   description: string | null;
@@ -53,6 +54,28 @@ export type ExtractResult = {
 
 export class ApiError extends Error {}
 
+async function authedFetch(url: string, init: RequestInit): Promise<Response> {
+  const headers = new Headers(init.headers);
+  const key = getAccessKey();
+  if (key) headers.set("X-Access-Key", key);
+
+  const res = await fetch(url, { ...init, headers });
+  if (res.status === 401) clearAccessKey("Your passcode was not accepted. Please enter it again.");
+  return res;
+}
+
+export async function checkAccessKey(key: string, apiUrl: string): Promise<boolean> {
+  let res: Response;
+  try {
+    res = await fetch(`${apiUrl}/auth/check`, { headers: { "X-Access-Key": key } });
+  } catch {
+    throw new ApiError("Could not reach the server. Check that the backend is running.");
+  }
+  if (res.ok) return true;
+  if (res.status === 401) return false;
+  throw new ApiError(await errorMessage(res));
+}
+
 async function errorMessage(res: Response): Promise<string> {
   try {
     const body = await res.json();
@@ -69,7 +92,7 @@ export async function extractInvoice(file: File, apiUrl: string): Promise<Extrac
 
   let res: Response;
   try {
-    res = await fetch(`${apiUrl}/extract`, { method: "POST", body });
+    res = await authedFetch(`${apiUrl}/extract`, { method: "POST", body });
   } catch {
     throw new ApiError("Could not reach the server. Check that the backend is running.");
   }
@@ -87,7 +110,7 @@ export async function extractInvoice(file: File, apiUrl: string): Promise<Extrac
 export async function validateInvoice(draft: Draft, apiUrl: string, signal?: AbortSignal): Promise<Flag[]> {
   let res: Response;
   try {
-    res = await fetch(`${apiUrl}/validate`, {
+    res = await authedFetch(`${apiUrl}/validate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(draft),

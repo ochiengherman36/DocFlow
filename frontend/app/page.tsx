@@ -1,3 +1,4 @@
+import AccessGate from "./access-gate";
 import UploadForm from "./upload-form";
 
 export default function Home() {
@@ -8,7 +9,9 @@ export default function Home() {
         Upload a supplier invoice PDF, digital or scanned, and review the data
         extracted from it.
       </p>
-      <UploadForm />
+      <AccessGate>
+        <UploadForm />
+      </AccessGate>
     </main>
   );
 }
