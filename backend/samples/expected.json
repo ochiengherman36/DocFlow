@@ -85,5 +85,74 @@
     "subtotal": 60300.0,
     "tax": 9648.0,
     "total": 69948.0
+  },
+  "invoice_wrong_total.pdf": {
+    "supplier": "Mwangaza Office Supplies",
+    "invoice_number": "MOS/INV/7790",
+    "date": "2026-10-22",
+    "currency": "KES",
+    "line_items": [
+      {
+        "description": "Printer Toner Cartridge",
+        "quantity": 4,
+        "unit_price": 5200.0,
+        "amount": 20800.0
+      },
+      {
+        "description": "Copy Paper A3 Ream",
+        "quantity": 10,
+        "unit_price": 1150.0,
+        "amount": 11500.0
+      }
+    ],
+    "subtotal": 32300.0,
+    "tax": 5168.0,
+    "total": 38468.0
+  },
+  "invoice_misspelled_supplier.pdf": {
+    "supplier": "Kijani Fuel Distibutors Ltd",
+    "invoice_number": "KFD-2026-0455",
+    "date": "2026-10-26",
+    "currency": "KES",
+    "line_items": [
+      {
+        "description": "Diesel (AGO)",
+        "quantity": 1500,
+        "unit_price": 199.0,
+        "amount": 298500.0
+      },
+      {
+        "description": "Delivery charge",
+        "quantity": 1,
+        "unit_price": 3500.0,
+        "amount": 3500.0
+      }
+    ],
+    "subtotal": 302000.0,
+    "tax": 48320.0,
+    "total": 350320.0
+  },
+  "invoice_missing_date.pdf": {
+    "supplier": "Twiga Auto Spares",
+    "invoice_number": "TAS-31002",
+    "date": null,
+    "currency": "KES",
+    "line_items": [
+      {
+        "description": "Air Filter",
+        "quantity": 6,
+        "unit_price": 1450.0,
+        "amount": 8700.0
+      },
+      {
+        "description": "Spark Plug Set",
+        "quantity": 8,
+        "unit_price": 2300.0,
+        "amount": 18400.0
+      }
+    ],
+    "subtotal": 27100.0,
+    "tax": 4336.0,
+    "total": 31436.0
   }
 }

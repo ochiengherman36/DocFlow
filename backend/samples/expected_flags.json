@@ -1,0 +1,30 @@
+{
+  "_comment": "Flags each sample must raise from validation. Fields in 'note' are for humans; tests check code, severity and field. An empty list means the invoice must raise no flags.",
+  "invoice_digital.pdf": [],
+  "invoice_scanned.pdf": [],
+  "invoice_poor_quality.pdf": [],
+  "invoice_wrong_total.pdf": [
+    {
+      "code": "total_mismatch",
+      "severity": "error",
+      "field": "totals.total",
+      "note": "Printed total 38,468.00 but subtotal + tax = 37,468.00 (off by 1,000.00)."
+    }
+  ],
+  "invoice_misspelled_supplier.pdf": [
+    {
+      "code": "supplier_near_match",
+      "severity": "warning",
+      "field": "supplier",
+      "note": "'Kijani Fuel Distibutors Ltd' is a near match for stored 'Kijani Fuel Distributors Ltd'."
+    }
+  ],
+  "invoice_missing_date.pdf": [
+    {
+      "code": "missing_field",
+      "severity": "error",
+      "field": "date",
+      "note": "The invoice has no date printed on it."
+    }
+  ]
+}
