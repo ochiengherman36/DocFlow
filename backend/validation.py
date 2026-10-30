@@ -1,6 +1,8 @@
 import datetime
+from typing import Sequence
 
 from schemas import Flag, FlagCode, InvoiceData, Severity
+from suppliers import match_supplier
 
 DEFAULT_MAX_AGE_DAYS = 365
 DEFAULT_TOLERANCE = 0.01 
@@ -89,6 +91,32 @@ def _check_math(invoice: InvoiceData, tolerance: float) -> list[Flag]:
 
     return flags
 
+def _check_supplier(invoice: InvoiceData, known_suppliers: Sequence[str]) -> list[Flag]:
+    """Compare the supplier with the stored list. Skipped when there is no name or no list."""
+    if invoice.supplier is None or not known_suppliers:
+        return []
+
+    match = match_supplier(invoice.supplier, known_suppliers)
+    if match.status == "near":
+        return [
+            _flag(
+                FlagCode.SUPPLIER_NEAR_MATCH,
+                Severity.WARNING,
+                "supplier",
+                f"'{invoice.supplier}' is very close to the stored supplier '{match.stored_name}'. "
+                "Is it the same company?",
+            )
+        ]
+    if match.status == "unknown":
+        return [
+            _flag(
+                FlagCode.SUPPLIER_UNKNOWN,
+                Severity.WARNING,
+                "supplier",
+                f"'{invoice.supplier}' is not in the supplier list. Is this a new supplier?",
+            )
+        ]
+    return []
 
 def _check_date(invoice: InvoiceData, today: datetime.date, max_age_days: int) -> list[Flag]:
     if invoice.date is None:
@@ -152,12 +180,14 @@ def validate(
     *,
     today: datetime.date | None = None,
     max_age_days: int = DEFAULT_MAX_AGE_DAYS,
-     tolerance: float = DEFAULT_TOLERANCE,
+    tolerance: float = DEFAULT_TOLERANCE,
+    known_suppliers: Sequence[str] = (),
 ) -> list[Flag]:
     """Return the problems found on an invoice. Never raises, never calls Claude."""
     today = today or datetime.date.today()
     return [
         *_check_missing(invoice),
+        *_check_supplier(invoice, known_suppliers),
         *_check_math(invoice, tolerance),
         *_check_date(invoice, today, max_age_days),
         *_check_currency(invoice),

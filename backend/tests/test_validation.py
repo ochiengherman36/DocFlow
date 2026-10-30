@@ -6,6 +6,7 @@ import pytest
 
 from schemas import FlagCode, InvoiceData, Severity
 from validation import validate
+from suppliers import load_known_suppliers
 
 SAMPLES = Path(__file__).parent.parent / "samples"
 TODAY = datetime.date(2026, 10, 30)
@@ -164,12 +165,12 @@ IMPLEMENTED_CODES = set(FlagCode) - {FlagCode.SUPPLIER_UNKNOWN, FlagCode.SUPPLIE
 
 @pytest.mark.parametrize("name", list(EXPECTED))
 def test_samples_raise_exactly_the_expected_flags(name):
-    """For each sample, the flags raised must equal the expected ones of the kinds implemented so far."""
-    result = validate(invoice_from_expected(EXPECTED[name]), today=TODAY)
+    """For each sample, the flags raised must equal the ones listed in expected_flags.json."""
+    result = validate(
+        invoice_from_expected(EXPECTED[name]),
+        today=TODAY,
+        known_suppliers=load_known_suppliers(),
+    )
     got = {(f.code.value, f.severity.value, f.field) for f in result}
-    want = {
-        (e["code"], e["severity"], e["field"])
-        for e in EXPECTED_FLAGS[name]
-        if FlagCode(e["code"]) in IMPLEMENTED_CODES
-    }
+    want = {(e["code"], e["severity"], e["field"]) for e in EXPECTED_FLAGS[name]}
     assert got == want
