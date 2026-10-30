@@ -1,0 +1,11 @@
+[project]
+name = "backend"
+version = "0.1.0"
+description = "DocFlow is an app that turns supplier invoice PDFs, 
+    digital or scanned, into checked data. A person reviews it, 
+    and the approved result goes to Zoho Books through OAuth2"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi[standard]>=0.162.0",
+]
