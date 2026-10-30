@@ -6,8 +6,17 @@ from config import get_settings
 from extractor import ExtractionError, extract_invoice
 from pdf_reader import PdfReadError
 from schemas import Flag, InvoiceData
+from suppliers import SupplierListError, load_known_suppliers
+from validation import validate
 
 settings = get_settings()
+
+# Read once at startup. A missing or broken list stops the app with a clear message
+# instead of quietly switching the supplier check off.
+try:
+    known_suppliers = load_known_suppliers(settings.known_suppliers_file)
+except SupplierListError as exc:
+    raise SystemExit(f"\nDocFlow cannot start: {exc}\n")
 
 app = FastAPI(title="DocFlow API")
 
@@ -25,6 +34,19 @@ class ExtractResponse(BaseModel):
     filename: str
     invoice: InvoiceData
     flags: list[Flag] = Field(default_factory=list)
+
+
+class ValidateResponse(BaseModel):
+    flags: list[Flag] = Field(default_factory=list)
+
+
+def check_invoice(invoice: InvoiceData) -> list[Flag]:
+    return validate(
+        invoice,
+        max_age_days=settings.max_invoice_age_days,
+        tolerance=settings.validation_tolerance,
+        known_suppliers=known_suppliers,
+    )
 
 
 @app.get("/health")
@@ -57,4 +79,14 @@ def extract(file: UploadFile | None = File(default=None)):
     except ExtractionError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    return ExtractResponse(filename=file.filename or "upload.pdf", invoice=invoice)
+    return ExtractResponse(
+        filename=file.filename or "upload.pdf",
+        invoice=invoice,
+        flags=check_invoice(invoice),
+    )
+
+
+@app.post("/validate", response_model=ValidateResponse)
+def validate_invoice(invoice: InvoiceData):
+    """Re-check an invoice the user has edited. Takes the invoice as the request body."""
+    return ValidateResponse(flags=check_invoice(invoice))

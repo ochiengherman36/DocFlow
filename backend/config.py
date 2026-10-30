@@ -4,7 +4,10 @@ from pathlib import Path
 from pydantic import SecretStr, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-ENV_FILE = Path(__file__).parent / ".env"
+from suppliers import DEFAULT_SUPPLIERS_FILE
+
+BASE_DIR = Path(__file__).parent
+ENV_FILE = BASE_DIR / ".env"
 
 
 class Settings(BaseSettings):
@@ -15,6 +18,9 @@ class Settings(BaseSettings):
     frontend_origin: str
     database_url: SecretStr | None = None
     max_upload_mb: int = 10
+    max_invoice_age_days: int = 365
+    validation_tolerance: float = 0.01
+    known_suppliers_file: Path = DEFAULT_SUPPLIERS_FILE
 
     @field_validator("anthropic_api_key")
     @classmethod
@@ -39,12 +45,25 @@ class Settings(BaseSettings):
             raise ValueError("must start with http:// or https://")
         return v
 
-    @field_validator("max_upload_mb")
+    @field_validator("max_upload_mb", "max_invoice_age_days")
     @classmethod
-    def upload_limit_positive(cls, v: int) -> int:
+    def at_least_one(cls, v: int) -> int:
         if v < 1:
             raise ValueError("must be at least 1")
         return v
+
+    @field_validator("validation_tolerance")
+    @classmethod
+    def not_negative(cls, v: float) -> float:
+        if v < 0:
+            raise ValueError("must not be negative")
+        return v
+
+    @field_validator("known_suppliers_file")
+    @classmethod
+    def relative_to_backend_folder(cls, v: Path) -> Path:
+        return v if v.is_absolute() else BASE_DIR / v
+
 
 @lru_cache
 def get_settings() -> Settings:

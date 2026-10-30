@@ -31,7 +31,9 @@ def test_valid_digital_pdf():
     assert body["filename"] == "invoice_digital.pdf"
     assert body["invoice"]["supplier"] == "Test Supplier"
     assert body["invoice"]["line_items"] == []
-    assert body["flags"] == []
+    # The fake invoice has only a supplier and a total, so validation must report what is missing.
+    assert ("missing_field", "invoice_number") in [(f["code"], f["field"]) for f in body["flags"]]
+
 
 
 def test_valid_scanned_pdf():
