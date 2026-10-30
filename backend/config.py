@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     anthropic_model: str
     frontend_origin: str
     database_url: SecretStr | None = None
+    max_upload_mb: int = 10
 
     @field_validator("anthropic_api_key")
     @classmethod
@@ -38,6 +39,12 @@ class Settings(BaseSettings):
             raise ValueError("must start with http:// or https://")
         return v
 
+    @field_validator("max_upload_mb")
+    @classmethod
+    def upload_limit_positive(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("must be at least 1")
+        return v
 
 @lru_cache
 def get_settings() -> Settings:
