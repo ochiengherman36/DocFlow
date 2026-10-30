@@ -92,7 +92,7 @@ export default function UploadForm() {
       </form>
 
       {result && file && previewUrl && (
-        <ReviewLayout fileUrl={previewUrl} fileName={file.name} result={result} />
+        <ReviewLayout fileUrl={previewUrl} fileName={file.name} result={result} apiUrl={API_URL} />
       )}
     </div>
   );

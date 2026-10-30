@@ -1,3 +1,5 @@
+import type { Draft } from "./draft";
+
 export type LineItem = {
   description: string | null;
   quantity: number | null;
@@ -77,6 +79,30 @@ export async function extractInvoice(file: File, apiUrl: string): Promise<Extrac
   try {
     const data = (await res.json()) as ExtractResult;
     return { ...data, flags: data.flags ?? [] };
+  } catch {
+    throw new ApiError("The server sent a response that could not be read.");
+  }
+}
+
+export async function validateInvoice(draft: Draft, apiUrl: string, signal?: AbortSignal): Promise<Flag[]> {
+  let res: Response;
+  try {
+    res = await fetch(`${apiUrl}/validate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(draft),
+      signal,
+    });
+  } catch (err) {
+    if (signal?.aborted) throw err;
+    throw new ApiError("Could not reach the server. Check that the backend is running.");
+  }
+
+  if (!res.ok) throw new ApiError(await errorMessage(res));
+
+  try {
+    const data = (await res.json()) as { flags?: Flag[] };
+    return data.flags ?? [];
   } catch {
     throw new ApiError("The server sent a response that could not be read.");
   }
