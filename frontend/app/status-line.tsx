@@ -7,8 +7,8 @@ const TONE: Record<DocumentStatus, string> = {
   rejected: "border-red-500 text-red-600",
 };
 
-export default function StatusLine({ status }: { status: DocumentStatus }) {
-  const hint = statusHint(status);
+export default function StatusLine({ status, note }: { status: DocumentStatus; note?: string | null }) {
+  const text = note ?? statusHint(status);
   return (
     <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
       <span className="font-medium">Status</span>
@@ -17,7 +17,7 @@ export default function StatusLine({ status }: { status: DocumentStatus }) {
       >
         {statusLabel(status)}
       </span>
-      {hint && <span className="text-zinc-600 dark:text-zinc-400">{hint}</span>}
+      {text && <span className="text-zinc-600 dark:text-zinc-400">{text}</span>}
     </p>
   );
 }

@@ -2,16 +2,28 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { ApiError, validateInvoice, type DocumentStatus, type Flag, type Invoice } from "@/lib/api";
+import {
+  ApiError,
+  ApprovalBlockedError,
+  approveDocument,
+  rejectDocument,
+  saveDocument,
+  validateInvoice,
+  type DocumentStatus,
+  type Flag,
+  type Invoice,
+} from "@/lib/api";
 import { toDraft, type Draft, type DraftLineItem, type DraftTotals } from "@/lib/draft";
 import { flagId, groupByField, lineField, toneOf, unplacedFlags, type Tone } from "@/lib/flags";
+import DecisionPanel, { type Busy } from "./decision-panel";
 import FieldFlags from "./field-flags";
 import FlagList from "./flag-list";
 import StatusLine from "./status-line";
 
 const RECHECK_DELAY_MS = 400;
 
-const inputBase = "rounded border bg-transparent px-2 py-1";
+const inputBase =
+  "rounded border bg-transparent px-2 py-1 read-only:bg-zinc-100 dark:read-only:bg-zinc-900";
 const numberBase = `${inputBase} text-right`;
 
 const BORDER: Record<Tone, string> = {
@@ -59,7 +71,7 @@ function ariaFor(field: string, flags: Flag[] | undefined) {
 export default function InvoiceEditor({
   invoice,
   documentId,
-  status,
+  status: initialStatus,
   initialFlags,
   apiUrl,
 }: {
@@ -73,6 +85,12 @@ export default function InvoiceEditor({
   const [flags, setFlags] = useState<Flag[]>(initialFlags);
   const [checking, setChecking] = useState(false);
   const [checkError, setCheckError] = useState<string | null>(null);
+  const [status, setStatus] = useState<DocumentStatus>(initialStatus);
+  const [decision, setDecision] = useState<{ by: string; reason: string | null } | null>(null);
+  const [busy, setBusy] = useState<Busy>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const readOnly = status !== "pending" || busy !== null;
 
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inFlight = useRef<AbortController | null>(null);
@@ -83,6 +101,12 @@ export default function InvoiceEditor({
       inFlight.current?.abort();
     };
   }, []);
+
+  function cancelChecks() {
+    if (timer.current) clearTimeout(timer.current);
+    inFlight.current?.abort();
+    setChecking(false);
+  }
 
   function scheduleCheck(next: Draft) {
     if (timer.current) clearTimeout(timer.current);
@@ -107,6 +131,7 @@ export default function InvoiceEditor({
   }
 
   function change(next: Draft) {
+    setActionError(null);
     setDraft(next);
     scheduleCheck(next);
   }
@@ -126,12 +151,51 @@ export default function InvoiceEditor({
     change({ ...draft, totals: { ...draft.totals, [field]: value } });
   }
 
+  async function approve() {
+    cancelChecks();
+    setBusy("approving");
+    setActionError(null);
+    try {
+      await saveDocument(draft, apiUrl, documentId);
+      const result = await approveDocument(apiUrl, documentId);
+      setFlags(result.flags);
+      setStatus(result.status);
+      setDecision({ by: result.decided_by, reason: null });
+    } catch (err) {
+      if (err instanceof ApprovalBlockedError) setFlags(err.flags);
+      setActionError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function reject(reason: string) {
+    cancelChecks();
+    setBusy("rejecting");
+    setActionError(null);
+    try {
+      const result = await rejectDocument(apiUrl, documentId, reason);
+      setStatus(result.status);
+      setDecision({ by: result.decided_by, reason: result.reject_reason });
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function statusNote(): string | null {
+    if (!decision) return null;
+    if (status === "approved") return `Approved by ${decision.by}.`;
+    return `Rejected by ${decision.by}: ${decision.reason ?? ""}`;
+  }
+
   const byField = groupByField(flags);
 
   return (
     <div className="group flex flex-col gap-8" data-checking={checking ? "true" : "false"}>
       <div className="flex flex-col gap-2">
-        <StatusLine status={status} />
+        <StatusLine status={status} note={statusNote()} />
         <FlagList flags={flags} unplaced={unplacedFlags(flags, draft)} />
         <p aria-live="polite" className="min-h-5 text-sm text-zinc-600 dark:text-zinc-400">
           {checking ? "Updating checks…" : ""}
@@ -166,6 +230,7 @@ export default function InvoiceEditor({
                       )
                     }
                     maxLength={field.name === "currency" ? 3 : undefined}
+                    readOnly={readOnly}
                     className={`${inputBase} w-full ${BORDER[toneOf(own)]}`}
                     {...ariaFor(field.name, own)}
                   />
@@ -210,6 +275,7 @@ export default function InvoiceEditor({
                             inputMode={field.name === "description" ? "text" : "decimal"}
                             aria-label={`Line ${index + 1} ${field.label}`}
                             value={item[field.name]}
+                            readOnly={readOnly}
                             onChange={(event) => setLine(index, field.name, event.target.value)}
                             className={`${
                               field.name === "description"
@@ -256,6 +322,7 @@ export default function InvoiceEditor({
                     type="text"
                     inputMode="decimal"
                     value={draft.totals[field.name]}
+                    readOnly={readOnly}
                     onChange={(event) => setTotal(field.name, event.target.value)}
                     className={`${numberBase} w-36 shrink-0 ${BORDER[toneOf(own)]}`}
                     {...ariaFor(key, own)}
@@ -266,6 +333,10 @@ export default function InvoiceEditor({
             );
           })}
         </div>
+
+        {status === "pending" && (
+          <DecisionPanel busy={busy} error={actionError} onApprove={approve} onReject={reject} />
+        )}
 
         <details>
           <summary className="cursor-pointer text-sm text-zinc-600 dark:text-zinc-400">

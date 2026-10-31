@@ -41,7 +41,6 @@ export type FlagCode =
   | "duplicate_file"
   | "duplicate_invoice";
 
-
 export type Flag = {
   code: FlagCode;
   severity: Severity;
@@ -57,7 +56,34 @@ export type ExtractResult = {
   flags: Flag[];
 };
 
+export type SaveResult = {
+  document_id: string;
+  status: DocumentStatus;
+  invoice: Invoice;
+  flags: Flag[];
+  changes: { field: string; from: unknown; to: unknown }[];
+};
+
+export type DecisionResult = {
+  document_id: string;
+  status: DocumentStatus;
+  decided_by: string;
+  decided_at: string;
+  reject_reason: string | null;
+  supplier_added: boolean;
+  flags: Flag[];
+};
+
 export class ApiError extends Error {}
+
+export class ApprovalBlockedError extends ApiError {
+  flags: Flag[];
+
+  constructor(message: string, flags: Flag[]) {
+    super(message);
+    this.flags = flags;
+  }
+}
 
 async function authedFetch(url: string, init: RequestInit): Promise<Response> {
   const headers = new Headers(init.headers);
@@ -85,6 +111,7 @@ async function errorMessage(res: Response): Promise<string> {
   try {
     const body = await res.json();
     if (typeof body?.detail === "string") return body.detail;
+    if (typeof body?.detail?.message === "string") return body.detail.message;
   } catch {
     // The body was not JSON; fall through to the generic message.
   }
@@ -134,4 +161,60 @@ export async function validateInvoice(draft: Draft, apiUrl: string, documentId: 
   } catch {
     throw new ApiError("The server sent a response that could not be read.");
   }
+}
+
+async function send(url: string, init: RequestInit): Promise<Response> {
+  try {
+    return await authedFetch(url, init);
+  } catch {
+    throw new ApiError("Could not reach the server. Check that the backend is running.");
+  }
+}
+
+async function readJson<T>(res: Response): Promise<T> {
+  try {
+    return (await res.json()) as T;
+  } catch {
+    throw new ApiError("The server sent a response that could not be read.");
+  }
+}
+
+export async function saveDocument(draft: Draft, apiUrl: string, documentId: string): Promise<SaveResult> {
+  const res = await send(`${apiUrl}/documents/${encodeURIComponent(documentId)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(draft),
+  });
+  if (!res.ok) throw new ApiError(await errorMessage(res));
+  return readJson<SaveResult>(res);
+}
+
+export async function approveDocument(apiUrl: string, documentId: string): Promise<DecisionResult> {
+  const res = await send(`${apiUrl}/documents/${encodeURIComponent(documentId)}/approve`, { method: "POST" });
+
+  if (res.status === 409) {
+    const body = await res.json().catch(() => null);
+    if (Array.isArray(body?.detail?.flags)) {
+      throw new ApprovalBlockedError(
+        body.detail.message ?? "This invoice has errors and cannot be approved until they are fixed.",
+        body.detail.flags,
+      );
+    }
+    throw new ApiError(typeof body?.detail === "string" ? body.detail : "The server returned an error (409).");
+  }
+
+  if (!res.ok) throw new ApiError(await errorMessage(res));
+  const data = await readJson<DecisionResult>(res);
+  return { ...data, flags: data.flags ?? [] };
+}
+
+export async function rejectDocument(apiUrl: string, documentId: string, reason: string): Promise<DecisionResult> {
+  const res = await send(`${apiUrl}/documents/${encodeURIComponent(documentId)}/reject`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason }),
+  });
+  if (!res.ok) throw new ApiError(await errorMessage(res));
+  const data = await readJson<DecisionResult>(res);
+  return { ...data, flags: data.flags ?? [] };
 }
