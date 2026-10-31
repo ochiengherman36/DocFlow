@@ -102,17 +102,19 @@ def consume_state(session: Session, state: str | None, *, now: datetime.datetime
     return row.created_by
 
 
-def _post_token(settings: Settings, form: dict[str, str], http: httpx.Client | None) -> dict:
-    """Send a form to Zoho's token address. Zoho reports some failures as a 200 with an error field."""
-    url = f"{settings.zoho_accounts_url}/oauth/v2/token"
+def _send(url: str, http: httpx.Client | None, **kwargs) -> httpx.Response:
     try:
         if http is None:
             with httpx.Client(timeout=TOKEN_TIMEOUT_SECONDS) as owned:
-                response = owned.post(url, data=form)
-        else:
-            response = http.post(url, data=form)
+                return owned.post(url, **kwargs)
+        return http.post(url, **kwargs)
     except httpx.HTTPError as exc:
         raise ZohoError("could not reach Zoho") from exc
+
+
+def _post_token(settings: Settings, form: dict[str, str], http: httpx.Client | None) -> dict:
+    """Send a form to Zoho's token address. Zoho reports some failures as a 200 with an error field."""
+    response = _send(f"{settings.zoho_accounts_url}/oauth/v2/token", http, data=form)
 
     try:
         body = response.json()
@@ -198,3 +200,15 @@ def refresh_access_token(
         scope=body.get("scope"),
         api_domain=body.get("api_domain"),
     )
+
+def revoke_token(settings: Settings, refresh_token: str, *, http: httpx.Client | None = None) -> None:
+    """Tell Zoho to cancel the refresh token, which also ends the access tokens made from it."""
+    response = _send(f"{settings.zoho_accounts_url}/oauth/v2/token/revoke", http, params={"token": refresh_token})
+
+    try:
+        body = response.json()
+    except ValueError as exc:
+        raise ZohoError(f"Zoho answered with something unreadable (HTTP {response.status_code})") from exc
+    if not isinstance(body, dict) or body.get("status") != "success":
+        reason = body.get("error") if isinstance(body, dict) else None
+        raise ZohoError(str(reason or "Zoho did not confirm the revoke"), code=str(reason) if reason else None)

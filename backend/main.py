@@ -9,7 +9,7 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
-from crypto import get_cipher
+from crypto import TokenDecryptionError, get_cipher
 
 from config import get_settings
 from db import get_db
@@ -33,8 +33,18 @@ from schemas import Flag, InvoiceData, Severity
 from security import AccessKeyMiddleware
 from supplier_store import list_supplier_names
 from validation import validate
-from zoho_oauth import STATE_TTL, ZohoError, authorization_url, consume_state, create_state, exchange_code
-from zoho_store import save_tokens
+from zoho_books import list_organizations
+from zoho_oauth import (
+    STATE_TTL,
+    ZohoError,
+    authorization_url,
+    consume_state,
+    create_state,
+    exchange_code,
+    revoke_token,
+)
+from zoho_store import delete_tokens, get_tokens, save_tokens
+from zoho_tokens import ZohoNotConnected, get_access_token
 
 settings = get_settings()
 logger = logging.getLogger("docflow")
@@ -59,7 +69,7 @@ app.add_middleware(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.frontend_origin],
-    allow_methods=["GET", "POST", "PUT"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["*"],
 )
 
@@ -128,6 +138,30 @@ class DocumentList(BaseModel):
 class ConnectResponse(BaseModel):
     authorization_url: str
     expires_in: int
+
+class ZohoStatus(BaseModel):
+    configured: bool
+    connected: bool
+    connected_by: str | None = None
+    connected_at: datetime.datetime | None = None
+    api_domain: str | None = None
+    message: str | None = None
+
+
+class DisconnectResponse(BaseModel):
+    was_connected: bool
+    revoked: bool
+
+
+class OrganizationItem(BaseModel):
+    organization_id: str
+    name: str
+    is_default: bool
+    currency_code: str | None = None
+
+
+class OrganizationsResponse(BaseModel):
+    organizations: list[OrganizationItem]
 
 class SaveResponse(BaseModel):
     document_id: uuid.UUID
@@ -510,3 +544,91 @@ def zoho_callback(
         return zoho_failed("unavailable")
 
     return zoho_result(zoho="connected")
+
+@app.get("/integrations/zoho/status", response_model=ZohoStatus)
+def zoho_status(session: Session = Depends(get_db)):
+    """Whether Zoho is connected. It reads the saved connection and does not call Zoho."""
+    if not settings.zoho_configured:
+        return ZohoStatus(configured=False, connected=False)
+
+    try:
+        tokens = get_tokens(session, get_cipher(settings))
+    except TokenDecryptionError:
+        return ZohoStatus(
+            configured=True,
+            connected=False,
+            message="The saved Zoho connection could not be read. Connect Zoho again.",
+        )
+    except OperationalError as exc:
+        raise database_unavailable(exc) from exc
+
+    if tokens is None:
+        return ZohoStatus(configured=True, connected=False)
+    return ZohoStatus(
+        configured=True,
+        connected=True,
+        connected_by=tokens.connected_by,
+        connected_at=tokens.connected_at,
+        api_domain=tokens.api_domain,
+    )
+
+
+@app.delete("/integrations/zoho", response_model=DisconnectResponse)
+def zoho_disconnect(session: Session = Depends(get_db)):
+    """Disconnect Zoho. The token is revoked at Zoho if possible, and the saved connection is always removed."""
+    revoked = False
+    try:
+        if settings.zoho_configured:
+            try:
+                tokens = get_tokens(session, get_cipher(settings))
+            except TokenDecryptionError:
+                tokens = None
+            if tokens is not None:
+                try:
+                    revoke_token(settings, tokens.refresh_token)
+                    revoked = True
+                except ZohoError as exc:
+                    logger.warning("Could not revoke the Zoho token: %s", exc)
+
+        was_connected = delete_tokens(session)
+        session.commit()
+    except OperationalError as exc:
+        raise database_unavailable(exc) from exc
+
+    return DisconnectResponse(was_connected=was_connected, revoked=revoked)
+
+
+@app.get("/integrations/zoho/organizations", response_model=OrganizationsResponse)
+def zoho_organizations(session: Session = Depends(get_db)):
+    """Ask Zoho Books for the organizations this connection can reach. Renews the token first if needed."""
+    if not settings.zoho_configured:
+        raise HTTPException(status_code=503, detail="Zoho is not set up on this server.")
+
+    try:
+        access_token = get_access_token(session, settings)
+        tokens = get_tokens(session, get_cipher(settings))
+    except ZohoNotConnected as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ZohoError as exc:
+        logger.warning("Could not renew the Zoho token: %s", exc)
+        raise HTTPException(status_code=502, detail="Zoho did not renew the connection. Try again in a moment.") from exc
+    except OperationalError as exc:
+        raise database_unavailable(exc) from exc
+
+    try:
+        organizations = list_organizations(settings, access_token, tokens.api_domain if tokens else None)
+    except ZohoError as exc:
+        logger.warning("Zoho Books call failed: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return OrganizationsResponse(
+        organizations=[
+            OrganizationItem(
+                organization_id=o.organization_id,
+                name=o.name,
+                is_default=o.is_default,
+                currency_code=o.currency_code,
+            )
+            for o in organizations
+        ]
+    )
