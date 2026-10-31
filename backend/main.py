@@ -29,6 +29,7 @@ from schemas import Flag, InvoiceData, Severity
 from security import AccessKeyMiddleware
 from supplier_store import list_supplier_names
 from validation import validate
+from zoho_oauth import STATE_TTL, authorization_url, create_state
 
 settings = get_settings()
 
@@ -116,6 +117,10 @@ class DocumentItem(BaseModel):
 class DocumentList(BaseModel):
     documents: list[DocumentItem]
     total: int
+
+class ConnectResponse(BaseModel):
+    authorization_url: str
+    expires_in: int
 
 class SaveResponse(BaseModel):
     document_id: uuid.UUID
@@ -417,4 +422,24 @@ def document_audit(document_id: uuid.UUID, session: Session = Depends(get_db)):
             AuditItem(id=e.id, action=e.action, actor=e.actor, at=e.created_at, details=e.details)
             for e in entries
         ],
+    )
+
+@app.post("/integrations/zoho/connect", response_model=ConnectResponse)
+def zoho_connect(
+    session: Session = Depends(get_db),
+    actor: str = Depends(reviewer_name),
+):
+    """Start connecting Zoho. Returns the address to send the browser to."""
+    if not settings.zoho_configured:
+        raise HTTPException(status_code=503, detail="Zoho is not set up on this server.")
+
+    try:
+        state = create_state(session, actor)
+        session.commit()
+    except OperationalError as exc:
+        raise database_unavailable(exc) from exc
+
+    return ConnectResponse(
+        authorization_url=authorization_url(settings, state),
+        expires_in=int(STATE_TTL.total_seconds()),
     )
