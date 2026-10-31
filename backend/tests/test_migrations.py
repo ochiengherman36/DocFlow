@@ -16,7 +16,7 @@ from config import BASE_DIR
 from db import Base, make_engine
 from models import Document
 
-TABLES = {"suppliers", "documents", "extractions", "audit_log"}
+TABLES = {"suppliers", "documents", "extractions", "audit_log", "zoho_connection", "oauth_states"}
 INVOICE = {"supplier": "Kijani", "invoice_number": "1"}
 
 
@@ -47,10 +47,10 @@ def table_names(engine) -> set[str]:
     return set(inspect(engine).get_table_names())
 
 
-def test_there_is_a_single_migration():
+def test_the_migrations_form_one_line():
     script = ScriptDirectory(str(BASE_DIR / "migrations"))
-    assert script.get_heads() == ["0001"]
-
+    assert script.get_heads() == ["0002"]
+    assert [r.revision for r in script.walk_revisions()] == ["0002", "0001"]
 
 def test_upgrade_creates_every_table(engine):
     upgrade(engine)
@@ -79,7 +79,8 @@ def test_running_upgrade_twice_changes_nothing(engine):
 def test_the_database_records_which_version_it_is_at(engine):
     upgrade(engine)
     with engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0001"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0002"
+
     downgrade(engine)
     with engine.connect() as connection:
         assert connection.execute(text("SELECT COUNT(*) FROM alembic_version")).scalar() == 0
@@ -179,3 +180,4 @@ def test_postgres_gets_the_other_indexes_and_constraints(postgres_sql):
 
 def test_postgres_sql_records_the_version(postgres_sql):
     assert "INSERT INTO alembic_version (version_num) VALUES ('0001')" in postgres_sql
+    assert "UPDATE alembic_version SET version_num='0002' WHERE alembic_version.version_num = '0001'" in postgres_sql

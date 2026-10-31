@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from cryptography.fernet import Fernet
 
 from pydantic import SecretStr, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -7,6 +8,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 BASE_DIR = Path(__file__).parent
 ENV_FILE = BASE_DIR / ".env"
 MIN_ACCESS_KEY_LENGTH = 16
+DEFAULT_ZOHO_ACCOUNTS_URL = "https://accounts.zoho.com"
 
 
 class Settings(BaseSettings):
@@ -17,10 +19,55 @@ class Settings(BaseSettings):
     access_key: SecretStr
     frontend_origin: str
     database_url: SecretStr 
+    @field_validator("zoho_accounts_url")
+    @classmethod
+    def accounts_url_is_https(cls, v: str) -> str:
+        v = v.strip().rstrip("/")
+        if not v:
+            return DEFAULT_ZOHO_ACCOUNTS_URL
+        if not v.startswith("https://"):
+            raise ValueError("must start with https://")
+        return v
+
+    @field_validator("zoho_redirect_uri")
+    @classmethod
+    def redirect_uri_is_url(cls, v: str) -> str:
+        v = v.strip()
+        if v and not v.startswith(("http://", "https://")):
+            raise ValueError("must start with http:// or https://")
+        return v
+
+    @field_validator("token_encryption_key")
+    @classmethod
+    def encryption_key_is_valid(cls, v: SecretStr) -> SecretStr:
+        key = v.get_secret_value().strip()
+        if key:
+            try:
+                Fernet(key.encode())
+            except ValueError:
+                raise ValueError(
+                    "must be a key made by Fernet.generate_key() (44 characters, ending in =)"
+                ) from None
+        return SecretStr(key)
+
     max_upload_mb: int = 10
     max_invoice_age_days: int = 365
     validation_tolerance: float = 0.01
     enable_api_docs: bool = False
+    zoho_client_id: str = ""
+    zoho_client_secret: SecretStr = SecretStr("")
+    zoho_redirect_uri: str = ""
+    zoho_accounts_url: str = DEFAULT_ZOHO_ACCOUNTS_URL
+    token_encryption_key: SecretStr = SecretStr("")
+
+    @property
+    def zoho_configured(self) -> bool:
+        return bool(
+            self.zoho_client_id.strip()
+            and self.zoho_client_secret.get_secret_value().strip()
+            and self.zoho_redirect_uri
+            and self.token_encryption_key.get_secret_value()
+        )
 
     @field_validator("anthropic_api_key")
     @classmethod
