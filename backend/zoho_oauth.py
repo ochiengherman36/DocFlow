@@ -22,6 +22,7 @@ SCOPES = [
     "ZohoBooks.contacts.CREATE",
     "ZohoBooks.contacts.READ",
     "ZohoBooks.settings.READ",
+    "ZohoBooks.accountants.READ",
 ]
 
 

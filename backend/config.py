@@ -10,7 +10,6 @@ ENV_FILE = BASE_DIR / ".env"
 MIN_ACCESS_KEY_LENGTH = 16
 DEFAULT_ZOHO_ACCOUNTS_URL = "https://accounts.zoho.com"
 
-
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=ENV_FILE, extra="ignore")
 
@@ -58,6 +57,16 @@ class Settings(BaseSettings):
     zoho_client_secret: SecretStr = SecretStr("")
     zoho_redirect_uri: str = ""
     zoho_accounts_url: str = DEFAULT_ZOHO_ACCOUNTS_URL
+    zoho_organization_id: str = ""
+    token_encryption_key: SecretStr = SecretStr("")
+    @field_validator("zoho_organization_id")
+    @classmethod
+    def organization_id_is_digits(cls, v: str) -> str:
+        v = v.strip()
+        if v and not v.isdigit():
+            raise ValueError("must be the numbers only, as shown in Zoho Books")
+        return v
+
     token_encryption_key: SecretStr = SecretStr("")
 
     @property

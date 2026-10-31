@@ -76,7 +76,7 @@ def test_the_address_carries_the_right_parameters(configured):
 def test_it_asks_for_the_books_scopes_it_needs(configured):
     _, query = parsed(connect().json()["authorization_url"])
     assert query["scope"].split(",") == SCOPES
-    assert {"ZohoBooks.bills.CREATE", "ZohoBooks.contacts.READ", "ZohoBooks.settings.READ"} <= set(SCOPES)
+    assert {"ZohoBooks.bills.CREATE", "ZohoBooks.contacts.READ", "ZohoBooks.settings.READ", "ZohoBooks.accountants.READ"} <= set(SCOPES)
 
 
 def test_the_state_in_the_address_is_the_one_stored(database, configured):
@@ -198,4 +198,5 @@ def test_the_scopes_are_the_ones_the_plan_names():
         "ZohoBooks.contacts.CREATE",
         "ZohoBooks.contacts.READ",
         "ZohoBooks.settings.READ",
+        "ZohoBooks.accountants.READ",
     ]

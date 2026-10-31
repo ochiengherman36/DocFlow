@@ -11,7 +11,7 @@ REQUIRED = {
     "access_key": "a-long-enough-test-key",
     "database_url": "sqlite://",
 }
-ZOHO_ENV = ["ZOHO_CLIENT_ID", "ZOHO_CLIENT_SECRET", "ZOHO_REDIRECT_URI", "ZOHO_ACCOUNTS_URL", "TOKEN_ENCRYPTION_KEY"]
+ZOHO_ENV = ["ZOHO_CLIENT_ID", "ZOHO_CLIENT_SECRET", "ZOHO_REDIRECT_URI", "ZOHO_ACCOUNTS_URL", "ZOHO_ORGANIZATION_ID", "TOKEN_ENCRYPTION_KEY"]
 
 
 @pytest.fixture(autouse=True)
@@ -100,3 +100,26 @@ def test_secrets_do_not_show_in_the_printed_settings():
     shown = repr(s)
     assert "shh" not in shown
     assert s.token_encryption_key.get_secret_value() not in shown
+
+def test_the_organization_id_is_optional_and_blank_by_default():
+    assert make().zoho_organization_id == ""
+
+
+def test_the_organization_id_is_kept_as_numbers():
+    assert make(zoho_organization_id=" 944669917 ").zoho_organization_id == "944669917"
+
+
+def test_the_organization_id_must_be_numbers_only():
+    for bad in ["abc", "9446-69917", "944669917a"]:
+        with pytest.raises(ValidationError):
+            make(zoho_organization_id=bad)
+
+
+def test_a_blank_organization_id_from_an_example_file_is_fine(monkeypatch):
+    monkeypatch.setenv("ZOHO_ORGANIZATION_ID", "")
+    assert make().zoho_organization_id == ""
+
+
+def test_the_organization_id_does_not_change_whether_connecting_is_possible():
+    assert fully_configured(zoho_organization_id="944669917").zoho_configured is True
+    assert fully_configured().zoho_configured is True
