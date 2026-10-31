@@ -18,6 +18,7 @@ import { flagId, groupByField, lineField, toneOf, unplacedFlags, type Tone } fro
 import DecisionPanel, { type Busy } from "./decision-panel";
 import FieldFlags from "./field-flags";
 import FlagList from "./flag-list";
+import HistoryPanel from "./history-panel";
 import StatusLine from "./status-line";
 
 const RECHECK_DELAY_MS = 400;
@@ -89,6 +90,7 @@ export default function InvoiceEditor({
   const [decision, setDecision] = useState<{ by: string; reason: string | null } | null>(null);
   const [busy, setBusy] = useState<Busy>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [historyVersion, setHistoryVersion] = useState(0);
 
   const readOnly = status !== "pending" || busy !== null;
 
@@ -166,6 +168,7 @@ export default function InvoiceEditor({
       setActionError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
     } finally {
       setBusy(null);
+      setHistoryVersion((version) => version + 1);
     }
   }
 
@@ -181,6 +184,7 @@ export default function InvoiceEditor({
       setActionError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
     } finally {
       setBusy(null);
+      setHistoryVersion((version) => version + 1);
     }
   }
 
@@ -337,6 +341,8 @@ export default function InvoiceEditor({
         {status === "pending" && (
           <DecisionPanel busy={busy} error={actionError} onApprove={approve} onReject={reject} />
         )}
+
+        <HistoryPanel apiUrl={apiUrl} documentId={documentId} version={historyVersion} />
 
         <details>
           <summary className="cursor-pointer text-sm text-zinc-600 dark:text-zinc-400">

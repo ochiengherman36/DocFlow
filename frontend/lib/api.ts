@@ -74,6 +74,14 @@ export type DecisionResult = {
   flags: Flag[];
 };
 
+export type AuditEntry = {
+  id: number;
+  action: string;
+  actor: string;
+  at: string;
+  details: Record<string, unknown> | null;
+};
+
 export class ApiError extends Error {}
 
 export class ApprovalBlockedError extends ApiError {
@@ -217,4 +225,11 @@ export async function rejectDocument(apiUrl: string, documentId: string, reason:
   if (!res.ok) throw new ApiError(await errorMessage(res));
   const data = await readJson<DecisionResult>(res);
   return { ...data, flags: data.flags ?? [] };
+}
+
+export async function fetchAudit(apiUrl: string, documentId: string): Promise<AuditEntry[]> {
+  const res = await send(`${apiUrl}/documents/${encodeURIComponent(documentId)}/audit`, { method: "GET" });
+  if (!res.ok) throw new ApiError(await errorMessage(res));
+  const data = await readJson<{ entries?: AuditEntry[] }>(res);
+  return data.entries ?? [];
 }
