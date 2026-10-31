@@ -20,6 +20,7 @@ export default function ReviewLayout({
         <InvoiceEditor 
           invoice={result.invoice} 
           documentId={result.document_id} 
+          status={result.status}
           initialFlags={result.flags} 
           apiUrl={apiUrl} 
         />

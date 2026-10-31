@@ -24,6 +24,7 @@ export type Invoice = {
 };
 
 export type Severity = "error" | "warning";
+export type DocumentStatus = "pending" | "approved" | "rejected";
 
 export type FlagCode =
   | "missing_field"
@@ -50,7 +51,7 @@ export type Flag = {
 
 export type ExtractResult = {
   document_id: string;
-  status: string;
+  status: DocumentStatus;
   filename: string;
   invoice: Invoice;
   flags: Flag[];

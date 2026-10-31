@@ -2,11 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { ApiError, validateInvoice, type Flag, type Invoice } from "@/lib/api";
+import { ApiError, validateInvoice, type DocumentStatus, type Flag, type Invoice } from "@/lib/api";
 import { toDraft, type Draft, type DraftLineItem, type DraftTotals } from "@/lib/draft";
 import { flagId, groupByField, lineField, toneOf, unplacedFlags, type Tone } from "@/lib/flags";
 import FieldFlags from "./field-flags";
 import FlagList from "./flag-list";
+import StatusLine from "./status-line";
 
 const RECHECK_DELAY_MS = 400;
 
@@ -58,11 +59,13 @@ function ariaFor(field: string, flags: Flag[] | undefined) {
 export default function InvoiceEditor({
   invoice,
   documentId,
+  status,
   initialFlags,
   apiUrl,
 }: {
   invoice: Invoice;
   documentId: string;
+  status: DocumentStatus;
   initialFlags: Flag[];
   apiUrl: string;
 }) {
@@ -128,6 +131,7 @@ export default function InvoiceEditor({
   return (
     <div className="group flex flex-col gap-8" data-checking={checking ? "true" : "false"}>
       <div className="flex flex-col gap-2">
+        <StatusLine status={status} />
         <FlagList flags={flags} unplaced={unplacedFlags(flags, draft)} />
         <p aria-live="polite" className="min-h-5 text-sm text-zinc-600 dark:text-zinc-400">
           {checking ? "Updating checks…" : ""}
