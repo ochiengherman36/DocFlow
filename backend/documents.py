@@ -11,6 +11,7 @@ from models import AuditAction, AuditEntry, Document, DocumentStatus, Extraction
 from schemas import Flag, FlagCode, InvoiceData, Severity
 from supplier_store import supplier_key
 from validation import DuplicateMatch
+from diffs import FieldChange, diff_invoice
 
 
 def file_hash(data: bytes) -> str:
@@ -28,6 +29,30 @@ def supplier_key_of(name: str | None) -> str | None:
     if not name or not name.strip():
         return None
     return supplier_key(name)[:255]
+
+def get_document(session: Session, document_id: uuid.UUID, *, for_update: bool = False) -> Document | None:
+    return session.get(Document, document_id, with_for_update=for_update)
+
+
+def apply_edit(session: Session, document: Document, invoice: InvoiceData, actor: str) -> list[FieldChange]:
+    new_data = invoice.model_dump(mode="json")
+    changes = diff_invoice(document.current_data, new_data)
+    if not changes:
+        return []
+
+    document.current_data = new_data
+    document.supplier_key = supplier_key_of(invoice.supplier)
+    document.invoice_number_key = invoice_number_key(invoice.invoice_number)
+    session.add(
+        AuditEntry(
+            document_id=document.id,
+            extraction_id=document.extraction.id if document.extraction else None,
+            action=AuditAction.EDITED.value,
+            actor=actor,
+            details={"changes": {c.field: {"from": c.old, "to": c.new} for c in changes}},
+        )
+    )
+    return changes
 
 
 def find_by_hash(session: Session, digest: str) -> Document | None:

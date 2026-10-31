@@ -1,5 +1,5 @@
 import uuid
-
+from typing import Any
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -9,10 +9,12 @@ from sqlalchemy.orm import Session
 from config import get_settings
 from db import get_db
 from documents import (
+    apply_edit,
     duplicate_file_flag,
     file_hash,
     find_by_hash,
     record_duplicate_upload,
+    get_document,
     save_new_document,
     find_duplicate_invoices,
 )
@@ -44,7 +46,7 @@ app.add_middleware(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.frontend_origin],
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "PUT"],
     allow_headers=["*"],
 )
 
@@ -62,6 +64,12 @@ class ExtractResponse(BaseModel):
 class ValidateResponse(BaseModel):
     flags: list[Flag] = Field(default_factory=list)
 
+class SaveResponse(BaseModel):
+    document_id: uuid.UUID
+    status: str
+    invoice: InvoiceData
+    flags: list[Flag] = Field(default_factory=list)
+    changes: list[dict[str, Any]] = Field(default_factory=list)
 
 def check_invoice(
     invoice: InvoiceData, session: Session, exclude_document_id: uuid.UUID | None = None
@@ -192,3 +200,34 @@ def validate_invoice(
 ):
     """Re-check an invoice the user has edited. Takes the invoice as the request body."""
     return ValidateResponse(flags=check_invoice(invoice, session, document_id))
+
+@app.put("/documents/{document_id}", response_model=SaveResponse)
+def save_document(
+    document_id: uuid.UUID,
+    invoice: InvoiceData,
+    session: Session = Depends(get_db),
+    actor: str = Depends(reviewer_name),
+):
+    """Store the reviewer's version of an invoice. The body is the invoice, as for /validate."""
+    try:
+        document = get_document(session, document_id, for_update=True)
+        if document is None:
+            raise HTTPException(status_code=404, detail="That document was not found.")
+        if document.status != "pending":
+            raise HTTPException(
+                status_code=409,
+                detail=f"This invoice was already {document.status} and can no longer be edited.",
+            )
+        changes = apply_edit(session, document, invoice, actor)
+        session.commit()
+    except OperationalError as exc:
+        raise database_unavailable(exc) from exc
+
+    stored = InvoiceData.model_validate(document.current_data)
+    return SaveResponse(
+        document_id=document.id,
+        status=document.status,
+        invoice=stored,
+        flags=check_invoice(stored, session, document.id),
+        changes=[{"field": c.field, "from": c.old, "to": c.new} for c in changes],
+    )
