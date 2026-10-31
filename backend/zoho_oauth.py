@@ -1,7 +1,9 @@
 import datetime
 import secrets
+from dataclasses import dataclass
 from urllib.parse import urlencode
 
+import httpx
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
@@ -9,6 +11,9 @@ from config import Settings
 from models import OAuthState
 
 STATE_TTL = datetime.timedelta(minutes=10)
+MAX_STATE_LENGTH = 128
+DEFAULT_TOKEN_LIFETIME = 3600
+TOKEN_TIMEOUT_SECONDS = 15
 
 SCOPES = [
     "ZohoBooks.bills.CREATE",
@@ -43,3 +48,84 @@ def authorization_url(settings: Settings, state: str) -> str:
         }
     )
     return f"{settings.zoho_accounts_url}/oauth/v2/auth?{query}"
+
+
+class ZohoError(Exception):
+    pass
+
+
+@dataclass(frozen=True)
+class TokenResponse:
+    access_token: str
+    refresh_token: str
+    expires_in: int
+    scope: str | None
+    api_domain: str | None
+
+
+def consume_state(session: Session, state: str | None, *, now: datetime.datetime | None = None) -> str | None:
+    """Use up a state. Returns who started the connection, or None if the state is not valid.
+
+    A state works once, within its ten minutes. The row is locked so two requests cannot both use it.
+    The caller commits.
+    """
+    if not state or len(state) > MAX_STATE_LENGTH:
+        return None
+
+    now = now or datetime.datetime.now(datetime.UTC)
+    row = session.get(OAuthState, state, with_for_update=True)
+    if row is None or row.used_at is not None:
+        return None
+
+    expires_at = row.expires_at if row.expires_at.tzinfo else row.expires_at.replace(tzinfo=datetime.UTC)
+    if expires_at < now:
+        return None
+
+    row.used_at = now
+    session.flush()
+    return row.created_by
+
+
+def exchange_code(settings: Settings, code: str, *, http: httpx.Client | None = None) -> TokenResponse:
+    """Trade the one-time code for tokens. Zoho reports some failures as a 200 with an error field."""
+    form = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "client_id": settings.zoho_client_id,
+        "client_secret": settings.zoho_client_secret.get_secret_value(),
+        "redirect_uri": settings.zoho_redirect_uri,
+    }
+    try:
+        if http is None:
+            with httpx.Client(timeout=TOKEN_TIMEOUT_SECONDS) as owned:
+                response = owned.post(f"{settings.zoho_accounts_url}/oauth/v2/token", data=form)
+        else:
+            response = http.post(f"{settings.zoho_accounts_url}/oauth/v2/token", data=form)
+    except httpx.HTTPError as exc:
+        raise ZohoError("could not reach Zoho") from exc
+
+    try:
+        body = response.json()
+    except ValueError as exc:
+        raise ZohoError(f"Zoho answered with something unreadable (HTTP {response.status_code})") from exc
+
+    if not isinstance(body, dict):
+        raise ZohoError("Zoho answered with something unexpected")
+    if "error" in body:
+        raise ZohoError(str(body["error"]))
+    if response.status_code >= 400:
+        raise ZohoError(f"Zoho refused the request (HTTP {response.status_code})")
+
+    access_token = body.get("access_token")
+    refresh_token = body.get("refresh_token")
+    if not access_token or not refresh_token:
+        raise ZohoError("Zoho did not send both tokens")
+
+    expires_in = body.get("expires_in")
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_in=expires_in if isinstance(expires_in, int) and expires_in > 0 else DEFAULT_TOKEN_LIFETIME,
+        scope=body.get("scope"),
+        api_domain=body.get("api_domain"),
+    )

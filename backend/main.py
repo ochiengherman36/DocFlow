@@ -1,11 +1,15 @@
 import datetime
 import uuid
+import logging
+from urllib.parse import urlencode
 from typing import Any, Literal
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
+from crypto import get_cipher
 
 from config import get_settings
 from db import get_db
@@ -29,11 +33,14 @@ from schemas import Flag, InvoiceData, Severity
 from security import AccessKeyMiddleware
 from supplier_store import list_supplier_names
 from validation import validate
-from zoho_oauth import STATE_TTL, authorization_url, create_state
+from zoho_oauth import STATE_TTL, ZohoError, authorization_url, consume_state, create_state, exchange_code
+from zoho_store import save_tokens
 
 settings = get_settings()
+logger = logging.getLogger("docflow")
 
-PUBLIC_PATHS = {"/health"}
+ZOHO_CALLBACK_PATH = "/integrations/zoho/callback"
+PUBLIC_PATHS = {"/health", ZOHO_CALLBACK_PATH}
 DOCS_PATHS = {"/docs", "/redoc", "/openapi.json", "/docs/oauth2-redirect"}
 
 app = FastAPI(
@@ -443,3 +450,63 @@ def zoho_connect(
         authorization_url=authorization_url(settings, state),
         expires_in=int(STATE_TTL.total_seconds()),
     )
+
+def zoho_result(**params: str) -> RedirectResponse:
+    return RedirectResponse(f"{settings.frontend_origin}/?{urlencode(params)}", status_code=303)
+
+
+def zoho_failed(reason: str) -> RedirectResponse:
+    logger.warning("Zoho connection failed: %s", reason)
+    return zoho_result(zoho="error", reason=reason)
+
+
+@app.get(ZOHO_CALLBACK_PATH)
+def zoho_callback(
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+    session: Session = Depends(get_db),
+):
+    """Where Zoho sends the browser back. It carries no access key, so the state is what protects it.
+
+    Every outcome is a redirect to the frontend: ?zoho=connected, or ?zoho=error&reason=...
+    """
+    if not settings.zoho_configured:
+        return zoho_failed("not_configured")
+
+    try:
+        started_by = consume_state(session, state)
+        session.commit()
+    except OperationalError:
+        return zoho_failed("unavailable")
+    if started_by is None:
+        return zoho_failed("invalid_state")
+
+    if error:
+        return zoho_failed("denied")
+    if not code:
+        return zoho_failed("missing_code")
+
+    try:
+        tokens = exchange_code(settings, code)
+    except ZohoError as exc:
+        logger.warning("Zoho token exchange failed: %s", exc)
+        return zoho_failed("exchange_failed")
+
+    expires_at = datetime.datetime.now(datetime.UTC) + datetime.timedelta(seconds=tokens.expires_in)
+    try:
+        save_tokens(
+            session,
+            get_cipher(settings),
+            access_token=tokens.access_token,
+            refresh_token=tokens.refresh_token,
+            expires_at=expires_at,
+            scope=tokens.scope,
+            api_domain=tokens.api_domain,
+            connected_by=started_by,
+        )
+        session.commit()
+    except OperationalError:
+        return zoho_failed("unavailable")
+
+    return zoho_result(zoho="connected")

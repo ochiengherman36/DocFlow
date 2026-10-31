@@ -2,8 +2,7 @@ from functools import lru_cache
 
 from cryptography.fernet import Fernet, InvalidToken
 
-from config import get_settings
-
+from config import Settings, get_settings
 
 class TokenDecryptionError(Exception):
     pass
@@ -30,8 +29,8 @@ def _cipher_for(key: str) -> TokenCipher:
     return TokenCipher(key)
 
 
-def get_cipher() -> TokenCipher:
-    key = get_settings().token_encryption_key.get_secret_value()
+def get_cipher(settings: Settings | None = None) -> TokenCipher:
+    key = (settings or get_settings()).token_encryption_key.get_secret_value()
     if not key:
         raise RuntimeError("TOKEN_ENCRYPTION_KEY is not set.")
     return _cipher_for(key)
