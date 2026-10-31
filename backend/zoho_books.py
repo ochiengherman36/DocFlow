@@ -22,6 +22,15 @@ SAFE_API_HOST = re.compile(r"(^|\.)zohoapis\.(com|eu|in|com\.au|jp|sa|ca|com\.cn
 RECONNECT_HINT = "The connection may have expired or may be missing a permission. Disconnect and connect Zoho again."
 NO_ORGANIZATION = "ZOHO_ORGANIZATION_ID is not set on the server."
 TOO_MANY_REQUESTS = "Zoho Books is receiving too many requests. Wait a minute and try again."
+NO_EXPENSE_ACCOUNT = (
+    "No active expense account was found in Zoho Books. Add one under Accountant, Chart of Accounts, "
+    "or set ZOHO_EXPENSE_ACCOUNT_ID on the server."
+)
+
+EXPENSE_TYPES = ("expense", "cost_of_goods_sold", "other_expense")
+PREFERRED_NAMES = ("other expenses", "office supplies")
+ACCOUNTS_PER_PAGE = 200
+MAX_ACCOUNT_PAGES = 5
 
 
 class ZohoBooksError(ZohoError):
@@ -140,3 +149,70 @@ def list_organizations(
         for item in organizations
         if isinstance(item, dict) and item.get("organization_id")
     ]
+
+@dataclass(frozen=True)
+class Account:
+    account_id: str
+    name: str
+    account_type: str
+
+
+def list_accounts(
+    settings: Settings, access_token: str, api_domain: str | None, *, http: httpx.Client | None = None
+) -> list[Account]:
+    """The active accounts in the chart of accounts. Needs the ZohoBooks.accountants.READ scope."""
+    accounts: list[Account] = []
+    for page in range(1, MAX_ACCOUNT_PAGES + 1):
+        body = books_request(
+            settings,
+            access_token,
+            api_domain,
+            "GET",
+            "chartofaccounts",
+            params={"page": page, "per_page": ACCOUNTS_PER_PAGE},
+            http=http,
+        )
+        items = body.get("chartofaccounts")
+        for item in items if isinstance(items, list) else []:
+            if not isinstance(item, dict) or not item.get("account_id") or item.get("is_active") is False:
+                continue
+            accounts.append(
+                Account(
+                    account_id=str(item["account_id"]),
+                    name=str(item.get("account_name") or ""),
+                    account_type=str(item.get("account_type") or ""),
+                )
+            )
+
+        page_context = body.get("page_context")
+        if not (isinstance(page_context, dict) and page_context.get("has_more_page")):
+            break
+    return accounts
+
+
+def choose_expense_account(accounts: list[Account]) -> Account | None:
+    """Prefer 'Other Expenses', then 'Office Supplies'. Otherwise the first expense account by name,
+    then cost of goods sold, then other expenses."""
+    usable = [a for a in accounts if a.account_type in EXPENSE_TYPES]
+    for wanted in PREFERRED_NAMES:
+        for account in usable:
+            if account.name.casefold() == wanted:
+                return account
+    for account_type in EXPENSE_TYPES:
+        matching = sorted((a for a in usable if a.account_type == account_type), key=lambda a: a.name.casefold())
+        if matching:
+            return matching[0]
+    return None
+
+
+def find_expense_account(
+    settings: Settings, access_token: str, api_domain: str | None, *, http: httpx.Client | None = None
+) -> Account:
+    """The account bill lines are booked to: ZOHO_EXPENSE_ACCOUNT_ID if set, otherwise chosen from Zoho Books."""
+    if settings.zoho_expense_account_id:
+        return Account(settings.zoho_expense_account_id, "the account set in ZOHO_EXPENSE_ACCOUNT_ID", "expense")
+
+    chosen = choose_expense_account(list_accounts(settings, access_token, api_domain, http=http))
+    if chosen is None:
+        raise ZohoError(NO_EXPENSE_ACCOUNT)
+    return chosen

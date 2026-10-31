@@ -11,7 +11,7 @@ REQUIRED = {
     "access_key": "a-long-enough-test-key",
     "database_url": "sqlite://",
 }
-ZOHO_ENV = ["ZOHO_CLIENT_ID", "ZOHO_CLIENT_SECRET", "ZOHO_REDIRECT_URI", "ZOHO_ACCOUNTS_URL", "ZOHO_ORGANIZATION_ID", "TOKEN_ENCRYPTION_KEY"]
+ZOHO_ENV = ["ZOHO_CLIENT_ID", "ZOHO_CLIENT_SECRET", "ZOHO_REDIRECT_URI", "ZOHO_ACCOUNTS_URL", "ZOHO_ORGANIZATION_ID", "ZOHO_EXPENSE_ACCOUNT_ID", "TOKEN_ENCRYPTION_KEY"]
 
 
 @pytest.fixture(autouse=True)
@@ -123,3 +123,20 @@ def test_a_blank_organization_id_from_an_example_file_is_fine(monkeypatch):
 def test_the_organization_id_does_not_change_whether_connecting_is_possible():
     assert fully_configured(zoho_organization_id="944669917").zoho_configured is True
     assert fully_configured().zoho_configured is True
+
+def test_the_expense_account_id_is_optional_and_blank_by_default():
+    assert make().zoho_expense_account_id == ""
+
+
+def test_the_expense_account_id_is_kept_as_numbers():
+    assert make(zoho_expense_account_id=" 4445000000000351 ").zoho_expense_account_id == "4445000000000351"
+
+
+def test_the_expense_account_id_must_be_numbers_only():
+    for bad in ["abc", "4445-351", "12x"]:
+        with pytest.raises(ValidationError):
+            make(zoho_expense_account_id=bad)
+
+def test_a_blank_expense_account_id_from_an_example_file_is_fine(monkeypatch):
+    monkeypatch.setenv("ZOHO_EXPENSE_ACCOUNT_ID", "")
+    assert make().zoho_expense_account_id == ""

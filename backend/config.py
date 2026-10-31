@@ -58,10 +58,11 @@ class Settings(BaseSettings):
     zoho_redirect_uri: str = ""
     zoho_accounts_url: str = DEFAULT_ZOHO_ACCOUNTS_URL
     zoho_organization_id: str = ""
+    zoho_expense_account_id: str = ""
     token_encryption_key: SecretStr = SecretStr("")
-    @field_validator("zoho_organization_id")
+    @field_validator("zoho_organization_id", "zoho_expense_account_id")
     @classmethod
-    def organization_id_is_digits(cls, v: str) -> str:
+    def zoho_id_is_digits(cls, v: str) -> str:
         v = v.strip()
         if v and not v.isdigit():
             raise ValueError("must be the numbers only, as shown in Zoho Books")
