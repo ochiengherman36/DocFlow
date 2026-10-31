@@ -82,6 +82,20 @@ export type AuditEntry = {
   details: Record<string, unknown> | null;
 };
 
+export type ZohoStatus = {
+  configured: boolean;
+  connected: boolean;
+  connected_by: string | null;
+  connected_at: string | null;
+  api_domain: string | null;
+  message: string | null;
+};
+
+export type DisconnectResult = {
+  was_connected: boolean;
+  revoked: boolean;
+};
+
 export class ApiError extends Error {}
 
 export class ApprovalBlockedError extends ApiError {
@@ -232,4 +246,24 @@ export async function fetchAudit(apiUrl: string, documentId: string): Promise<Au
   if (!res.ok) throw new ApiError(await errorMessage(res));
   const data = await readJson<{ entries?: AuditEntry[] }>(res);
   return data.entries ?? [];
+}
+
+export async function fetchZohoStatus(apiUrl: string): Promise<ZohoStatus> {
+  const res = await send(`${apiUrl}/integrations/zoho/status`, { method: "GET" });
+  if (!res.ok) throw new ApiError(await errorMessage(res));
+  return readJson<ZohoStatus>(res);
+}
+
+export async function startZohoConnect(apiUrl: string): Promise<string> {
+  const res = await send(`${apiUrl}/integrations/zoho/connect`, { method: "POST" });
+  if (!res.ok) throw new ApiError(await errorMessage(res));
+  const data = await readJson<{ authorization_url?: string }>(res);
+  if (!data.authorization_url) throw new ApiError("The server did not send the Zoho address.");
+  return data.authorization_url;
+}
+
+export async function disconnectZoho(apiUrl: string): Promise<DisconnectResult> {
+  const res = await send(`${apiUrl}/integrations/zoho`, { method: "DELETE" });
+  if (!res.ok) throw new ApiError(await errorMessage(res));
+  return readJson<DisconnectResult>(res);
 }

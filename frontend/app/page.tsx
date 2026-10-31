@@ -1,5 +1,6 @@
 import AccessGate from "./access-gate";
 import UploadForm from "./upload-form";
+import ZohoPanel from "./zoho-panel";
 
 export default function Home() {
   return (
@@ -10,6 +11,7 @@ export default function Home() {
         extracted from it.
       </p>
       <AccessGate>
+        <ZohoPanel />
         <UploadForm />
       </AccessGate>
     </main>
