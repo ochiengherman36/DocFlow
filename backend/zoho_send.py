@@ -11,6 +11,7 @@ from models import AuditAction, AuditEntry, Document, DocumentStatus, Supplier
 from schemas import InvoiceData
 from zoho_bill import BillError, build_bill, missing_currency_message
 from zoho_books import ZohoBooksError, create_bill, find_bill, find_currency_id, find_expense_account
+from zoho_oauth import ZohoError
 from zoho_store import get_tokens
 from zoho_tokens import get_access_token
 from zoho_vendors import ensure_vendor
@@ -18,6 +19,10 @@ from zoho_vendors import ensure_vendor
 
 class NotSendable(Exception):
     """The document cannot be sent, whatever Zoho says. The message says why."""
+
+
+class DocumentNotFound(NotSendable):
+    pass
 
 
 @dataclass(frozen=True)
@@ -57,13 +62,16 @@ def send_to_zoho(
     the vendor already has a bill with this number, which covers a crash after Zoho made the bill and
     before the id was saved. Any failure saves nothing and the send can be tried again. This commits.
     """
-    access_token = get_access_token(session, settings)
+    try:
+        access_token = get_access_token(session, settings)
+    except ZohoError as exc:
+        raise ZohoError("Zoho did not renew the connection. Try again in a moment.") from exc
     tokens = get_tokens(session, get_cipher(settings))
     api_domain = tokens.api_domain if tokens else None
 
     document = session.get(Document, document_id)
     if document is None:
-        raise NotSendable("This document was not found.")
+        raise DocumentNotFound("This document was not found.")
 
     try:
         session.refresh(document, with_for_update=True)

@@ -33,7 +33,8 @@ from schemas import Flag, InvoiceData, Severity
 from security import AccessKeyMiddleware
 from supplier_store import list_supplier_names
 from validation import validate
-from zoho_books import list_organizations
+from zoho_bill import BillError
+from zoho_books import ZohoBooksError, bill_url, list_organizations
 from zoho_oauth import (
     STATE_TTL,
     ZohoError,
@@ -43,6 +44,7 @@ from zoho_oauth import (
     exchange_code,
     revoke_token,
 )
+from zoho_send import DocumentNotFound, NotSendable, send_to_zoho
 from zoho_store import delete_tokens, get_tokens, save_tokens
 from zoho_tokens import ZohoNotConnected, get_access_token
 
@@ -75,8 +77,14 @@ app.add_middleware(
 
 PDF_MAGIC = b"%PDF-"
 
+class ZohoBillLink(BaseModel):
+    zoho_bill_id: str | None = None
+    zoho_bill_url: str | None = None
+    zoho_sent_at: datetime.datetime | None = None
+    zoho_sent_by: str | None = None
 
-class ExtractResponse(BaseModel):
+
+class ExtractResponse(ZohoBillLink):
     document_id: uuid.UUID
     status: str
     filename: str
@@ -110,13 +118,13 @@ class AuditItem(BaseModel):
     details: dict[str, Any] | None = None
 
 
-class AuditResponse(BaseModel):
+class AuditResponse(ZohoBillLink):
     document_id: uuid.UUID
     status: str
     entries: list[AuditItem]
 
 
-class DocumentItem(BaseModel):
+class DocumentItem(ZohoBillLink):
     document_id: uuid.UUID
     filename: str
     status: str
@@ -201,6 +209,17 @@ def database_unavailable(exc: Exception) -> HTTPException:
         status_code=503, detail="The database is not available. Please try again in a moment."
     )
 
+def bill_link(document) -> dict:
+    """The Zoho Books bill a document was sent as, with its address in the web app. Empty if it was not sent."""
+    if not document.zoho_bill_id:
+        return {}
+    organization_id = document.zoho_bill_organization_id or settings.zoho_organization_id
+    return dict(
+        zoho_bill_id=document.zoho_bill_id,
+        zoho_bill_url=bill_url(settings, organization_id, document.zoho_bill_id) if organization_id else None,
+        zoho_sent_at=document.zoho_sent_at,
+        zoho_sent_by=document.zoho_sent_by,
+    )
 
 def stored_result(document, filename: str, session: Session, actor: str) -> ExtractResponse:
     record_duplicate_upload(session, document, filename=filename, actor=actor)
@@ -212,6 +231,7 @@ def stored_result(document, filename: str, session: Session, actor: str) -> Extr
         filename=filename,
         invoice=invoice,
         flags=[duplicate_file_flag(document), *check_invoice(invoice, session, document.id)],
+        **bill_link(document),
     )
 
 @app.get("/health")
@@ -424,6 +444,7 @@ def document_item(document) -> DocumentItem:
         date=data.get("date"),
         currency=data.get("currency"),
         total=(data.get("totals") or {}).get("total"),
+        **bill_link(document),
         created_at=document.created_at,
         decided_by=document.decided_by,
         decided_at=document.decided_at,
@@ -459,10 +480,56 @@ def document_audit(document_id: uuid.UUID, session: Session = Depends(get_db)):
     return AuditResponse(
         document_id=document.id,
         status=document.status,
+        **bill_link(document),
         entries=[
             AuditItem(id=e.id, action=e.action, actor=e.actor, at=e.created_at, details=e.details)
             for e in entries
         ],
+    )
+
+class SendToZohoResponse(ZohoBillLink):
+    document_id: uuid.UUID
+    already_sent: bool
+    recovered: bool
+
+
+@app.post("/documents/{document_id}/send-to-zoho", response_model=SendToZohoResponse)
+def send_document_to_zoho(
+    document_id: uuid.UUID,
+    session: Session = Depends(get_db),
+    actor: str = Depends(reviewer_name),
+):
+    """Make an approved invoice a bill in Zoho Books. Sending again returns the same bill."""
+    if not settings.zoho_configured or not settings.zoho_organization_id:
+        raise HTTPException(status_code=503, detail="Zoho is not set up on this server.")
+
+    try:
+        result = send_to_zoho(session, settings, document_id, actor)
+    except DocumentNotFound as exc:
+        raise HTTPException(status_code=404, detail="That document was not found.") from exc
+    except NotSendable as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ZohoNotConnected as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except BillError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ZohoBooksError as exc:
+        logger.warning("Zoho Books refused a bill for %s: %s", document_id, exc)
+        raise HTTPException(status_code=409 if exc.needs_reconnect else 502, detail=str(exc)) from exc
+    except ZohoError as exc:
+        logger.warning("Sending %s to Zoho Books failed: %s", document_id, exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except OperationalError as exc:
+        raise database_unavailable(exc) from exc
+
+    return SendToZohoResponse(
+        document_id=document_id,
+        already_sent=result.already_sent,
+        recovered=result.recovered,
+        zoho_bill_id=result.bill_id,
+        zoho_bill_url=bill_url(settings, result.organization_id or settings.zoho_organization_id, result.bill_id),
+        zoho_sent_at=result.sent_at,
+        zoho_sent_by=result.sent_by,
     )
 
 @app.post("/integrations/zoho/connect", response_model=ConnectResponse)

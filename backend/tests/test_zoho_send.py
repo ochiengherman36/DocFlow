@@ -6,6 +6,7 @@ from decimal import Decimal
 import httpx
 import pytest
 from cryptography.fernet import Fernet
+from fastapi.testclient import TestClient
 from pydantic import SecretStr
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
@@ -23,7 +24,7 @@ from zoho_books import (
     find_bill,
 )
 from zoho_oauth import ZohoError
-from zoho_send import NotSendable, send_to_zoho
+from zoho_send import DocumentNotFound, NotSendable, send_to_zoho
 from zoho_store import save_tokens
 from zoho_tokens import ZohoNotConnected
 
@@ -529,3 +530,234 @@ class TestBillCalls:
     def test_a_made_bill_is_returned(self, zoho):
         made = create_bill(SETTINGS, "tok", DOMAIN, {"vendor_id": "1", "bill_number": "X"}, http=zoho.client())
         assert made == Bill("5000", "X", "open")
+HEADERS = {"X-Access-Key": main.settings.access_key.get_secret_value()}
+client = TestClient(main.app, headers=HEADERS)
+
+
+@pytest.fixture
+def api(monkeypatch, zoho):
+    monkeypatch.setattr(main, "settings", SETTINGS)
+    real_send = send_to_zoho
+    monkeypatch.setattr(
+        main,
+        "send_to_zoho",
+        lambda session, settings, document_id, actor: real_send(session, settings, document_id, actor, http=zoho.client()),
+    )
+    return zoho
+
+
+def post(document_id, **headers):
+    return client.post(f"/documents/{document_id}/send-to-zoho", headers=headers)
+
+
+class TestEndpoint:
+    def test_an_approved_invoice_is_sent_and_the_link_comes_back(self, database, api):
+        document_id = make_document(database)
+
+        r = post(document_id, **{"X-Reviewer": "Ochieng"})
+
+        assert r.status_code == 200
+        body = r.json()
+        assert body["document_id"] == str(document_id)
+        assert body["zoho_bill_id"] == api.bills[0]["bill_id"]
+        assert body["zoho_bill_url"] == f"https://books.zoho.com/app/944669917#/bills/{api.bills[0]['bill_id']}"
+        assert (body["already_sent"], body["recovered"], body["zoho_sent_by"]) == (False, False, "Ochieng")
+        assert body["zoho_sent_at"]
+
+    def test_sending_again_returns_the_same_link_instead_of_an_error(self, database, api):
+        document_id = make_document(database)
+        first = post(document_id).json()
+
+        r = post(document_id)
+
+        assert r.status_code == 200
+        assert r.json()["already_sent"] is True
+        assert r.json()["zoho_bill_url"] == first["zoho_bill_url"]
+        assert len(api.bills) == 1
+
+    def test_the_response_has_no_token(self, database, api):
+        r = post(make_document(database))
+        assert "access-abc" not in r.text
+        assert "refresh-def" not in r.text
+
+    @pytest.mark.parametrize("status", ["pending", "rejected"])
+    def test_a_document_that_is_not_approved_is_a_409(self, database, api, status):
+        r = post(make_document(database, status=status))
+        assert r.status_code == 409
+        assert "Only approved" in r.json()["detail"]
+        assert api.requests == []
+
+    def test_an_invoice_without_a_listed_supplier_is_a_409(self, database, api):
+        r = post(make_document(database, with_supplier=False))
+        assert r.status_code == 409
+        assert "no supplier" in r.json()["detail"]
+
+    def test_an_unknown_document_is_a_404(self, database, api):
+        r = post(uuid.uuid4())
+        assert r.status_code == 404
+        assert "not found" in r.json()["detail"]
+
+    def test_not_connected_is_a_clear_409(self, database, api):
+        with database() as session:
+            from zoho_store import delete_tokens
+
+            delete_tokens(session)
+            session.commit()
+
+        r = post(make_document(database))
+
+        assert r.status_code == 409
+        assert r.json()["detail"] == "Zoho is not connected."
+        assert api.requests == []
+
+    def test_an_expired_connection_is_a_409_that_says_to_connect_again(self, database, api):
+        api.unauthorised = True
+        r = post(make_document(database))
+        assert r.status_code == 409
+        assert "connect Zoho again" in r.json()["detail"]
+
+    def test_a_refused_connection_that_cannot_be_renewed_is_a_409(self, database, api, monkeypatch):
+        import zoho_tokens
+        from zoho_oauth import ZohoRefreshRejected
+
+        connect(database, expires_at=datetime.datetime.now(datetime.UTC) - datetime.timedelta(hours=2))
+
+        def dead(settings, refresh_token, **kwargs):
+            raise ZohoRefreshRejected("invalid_grant", code="invalid_grant")
+
+        monkeypatch.setattr(zoho_tokens, "refresh_access_token", dead)
+
+        r = post(make_document(database))
+
+        assert r.status_code == 409
+        assert "Connect Zoho again" in r.json()["detail"]
+
+    def test_a_renewal_that_failed_for_now_is_a_502_in_plain_words(self, database, api, monkeypatch):
+        import zoho_tokens
+
+        connect(database, expires_at=datetime.datetime.now(datetime.UTC) - datetime.timedelta(hours=2))
+
+        def down(settings, refresh_token, **kwargs):
+            raise ZohoError("invalid_client")
+
+        monkeypatch.setattr(zoho_tokens, "refresh_access_token", down)
+
+        r = post(make_document(database))
+
+        assert r.status_code == 502
+        assert r.json()["detail"] == "Zoho did not renew the connection. Try again in a moment."
+
+    def test_zohos_refusal_is_a_502_with_its_words_and_the_send_can_be_retried(self, database, api):
+        document_id = make_document(database)
+        api.create_errors.append((400, {"code": 1001, "message": "Please ensure that the bill number is unique."}))
+
+        r = post(document_id)
+
+        assert r.status_code == 502
+        assert "bill number is unique" in r.json()["detail"]
+        assert api.bills == []
+        assert post(document_id).status_code == 200
+        assert len(api.bills) == 1
+
+    def test_a_lost_reply_is_a_502_and_the_retry_finds_the_bill(self, database, api):
+        document_id = make_document(database)
+        api.lose_reply = 1
+
+        assert post(document_id).status_code == 502
+        r = post(document_id)
+
+        assert r.status_code == 200
+        assert r.json()["recovered"] is True
+        assert len(api.bills) == 1
+
+    def test_an_invoice_that_does_not_add_up_is_a_422(self, database, api):
+        bad = {**INVOICE, "totals": {"subtotal": 34350.0, "tax": 5496.0, "total": 40000.0}}
+        r = post(make_document(database, data=bad))
+        assert r.status_code == 422
+        assert "add up to" in r.json()["detail"]
+        assert api.calls("POST", "bills") == []
+
+    def test_zoho_not_set_up_is_a_503(self, database, api, monkeypatch):
+        monkeypatch.setattr(main, "settings", SETTINGS.model_copy(update=dict(zoho_client_id="")))
+        r = post(make_document(database))
+        assert r.status_code == 503
+        assert "not set up" in r.json()["detail"]
+
+    def test_a_missing_organization_id_is_a_503(self, database, api, monkeypatch):
+        monkeypatch.setattr(main, "settings", SETTINGS.model_copy(update=dict(zoho_organization_id="")))
+        assert post(make_document(database)).status_code == 503
+
+    def test_a_database_failure_is_a_503(self, database, api, monkeypatch):
+        def broken(*args, **kwargs):
+            raise OperationalError("select", {}, Exception("connection lost"))
+
+        monkeypatch.setattr(main, "send_to_zoho", broken)
+        assert post(make_document(database)).status_code == 503
+
+    def test_it_needs_the_access_key(self, database, api):
+        r = TestClient(main.app).post(f"/documents/{make_document(database)}/send-to-zoho")
+        assert r.status_code == 401
+
+    def test_a_bad_id_is_a_422(self, api):
+        assert client.post("/documents/not-an-id/send-to-zoho").status_code == 422
+
+    def test_a_missing_document_error_is_a_kind_of_not_sendable(self):
+        assert issubclass(DocumentNotFound, NotSendable)
+
+
+class TestTheLinkInOtherResponses:
+    def test_the_document_list_shows_the_bill_for_a_sent_invoice_only(self, database, api):
+        sent_id = make_document(database, number="A-1", n=1)
+        make_document(database, number="A-2", n=2)
+        post(sent_id)
+
+        documents = {d["invoice_number"]: d for d in client.get("/documents").json()["documents"]}
+
+        assert documents["A-1"]["zoho_bill_id"] == api.bills[0]["bill_id"]
+        assert documents["A-1"]["zoho_bill_url"].startswith("https://books.zoho.com/app/944669917#/bills/")
+        assert documents["A-1"]["zoho_sent_by"] == "reviewer"
+        assert documents["A-2"]["zoho_bill_id"] is None
+        assert documents["A-2"]["zoho_bill_url"] is None
+
+    def test_the_history_shows_the_bill_and_the_sending(self, database, api):
+        document_id = make_document(database)
+        post(document_id, **{"X-Reviewer": "Ochieng"})
+
+        body = client.get(f"/documents/{document_id}/audit").json()
+
+        assert body["zoho_bill_url"].endswith(f"/bills/{api.bills[0]['bill_id']}")
+        assert body["zoho_sent_by"] == "Ochieng"
+        entry = body["entries"][0]
+        assert (entry["action"], entry["actor"]) == ("sent_to_zoho", "Ochieng")
+        assert entry["details"]["bill_id"] == api.bills[0]["bill_id"]
+
+    def test_the_history_of_an_unsent_invoice_has_no_bill(self, database, api):
+        body = client.get(f"/documents/{make_document(database)}/audit").json()
+        assert body["zoho_bill_id"] is None and body["zoho_bill_url"] is None
+
+    def test_uploading_a_sent_invoice_again_shows_its_bill(self, database, api):
+        from documents import file_hash
+
+        pdf = b"%PDF-1.4 a sent invoice"
+        document_id = make_document(database)
+        with database() as session:
+            session.get(Document, document_id).file_hash = file_hash(pdf)
+            session.commit()
+        post(document_id)
+
+        r = client.post("/extract", files={"file": ("again.pdf", pdf, "application/pdf")})
+
+        assert r.status_code == 200
+        assert r.json()["document_id"] == str(document_id)
+        assert r.json()["zoho_bill_id"] == api.bills[0]["bill_id"]
+        assert r.json()["zoho_bill_url"].endswith(f"/bills/{api.bills[0]['bill_id']}")
+
+    def test_the_bill_link_uses_the_organization_it_was_sent_to(self, database, api, monkeypatch):
+        document_id = make_document(database)
+        post(document_id)
+        other = SETTINGS.model_copy(update=dict(zoho_organization_id="100200300"))
+        monkeypatch.setattr(main, "settings", other)
+
+        body = client.get(f"/documents/{document_id}/audit").json()
+
+        assert "/app/944669917#/bills/" in body["zoho_bill_url"]

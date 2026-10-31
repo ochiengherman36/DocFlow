@@ -51,7 +51,11 @@ def test_response_has_empty_flags_by_default():
     response = ExtractResponse(document_id=uuid.uuid4(), status="pending", filename="a.pdf", invoice=InvoiceData())
     data = response.model_dump(mode="json")
     assert data["flags"] == []
-    assert set(data) == {"document_id", "status", "filename", "invoice", "flags"}
+    assert set(data) == {
+        "document_id", "status", "filename", "invoice", "flags",
+        "zoho_bill_id", "zoho_bill_url", "zoho_sent_at", "zoho_sent_by",
+    }
+    assert data["zoho_bill_id"] is None and data["zoho_bill_url"] is None
 
 
 def test_response_serialises_flags():
