@@ -49,8 +49,9 @@ def table_names(engine) -> set[str]:
 
 def test_the_migrations_form_one_line():
     script = ScriptDirectory(str(BASE_DIR / "migrations"))
-    assert script.get_heads() == ["0003"]
-    assert [r.revision for r in script.walk_revisions()] == ["0003", "0002", "0001"]
+    assert script.get_heads() == ["0004"]
+    assert [r.revision for r in script.walk_revisions()] == ["0004", "0003", "0002", "0001"]
+
 
 
 def test_upgrade_creates_every_table(engine):
@@ -80,7 +81,7 @@ def test_running_upgrade_twice_changes_nothing(engine):
 def test_the_database_records_which_version_it_is_at(engine):
     upgrade(engine)
     with engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0003"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0004"
 
     downgrade(engine)
     with engine.connect() as connection:
@@ -183,6 +184,7 @@ def test_postgres_sql_records_the_version(postgres_sql):
     assert "INSERT INTO alembic_version (version_num) VALUES ('0001')" in postgres_sql
     assert "UPDATE alembic_version SET version_num='0002' WHERE alembic_version.version_num = '0001'" in postgres_sql
     assert "UPDATE alembic_version SET version_num='0003' WHERE alembic_version.version_num = '0002'" in postgres_sql
+    assert "UPDATE alembic_version SET version_num='0004' WHERE alembic_version.version_num = '0003'" in postgres_sql
 
 
 def test_suppliers_get_their_zoho_vendor_columns(engine):
@@ -202,3 +204,29 @@ def test_the_vendor_columns_can_be_removed_again_without_losing_suppliers(engine
     assert "zoho_vendor_id" not in columns
     with engine.connect() as connection:
         assert connection.execute(text("SELECT name FROM suppliers")).scalar() == "Kept Ltd"
+
+def test_documents_get_their_zoho_bill_columns(engine):
+    upgrade(engine)
+    columns = {c["name"]: c for c in inspect(engine).get_columns("documents")}
+    for name in ("zoho_bill_id", "zoho_bill_organization_id", "zoho_sent_at", "zoho_sent_by"):
+        assert columns[name]["nullable"] is True
+
+
+INSERT_DOCUMENT = text(
+    "INSERT INTO documents (id, filename, file_hash, file_size, status, current_data, supplier_key, invoice_number_key) "
+    "VALUES (:id, 'a.pdf', :hash, 1, 'approved', '{}', 'kijani', 'kfd-1')"
+)
+
+
+def test_the_bill_columns_can_be_removed_again_without_losing_documents_or_their_rules(engine):
+    upgrade(engine, "0003")
+    with engine.begin() as connection:
+        connection.execute(INSERT_DOCUMENT, {"id": "1" * 32, "hash": "a" * 64})
+    upgrade(engine)
+    downgrade(engine, "0003")
+    assert "zoho_bill_id" not in {c["name"] for c in inspect(engine).get_columns("documents")}
+    with engine.connect() as connection:
+        assert connection.execute(text("SELECT COUNT(*) FROM documents")).scalar() == 1
+    with pytest.raises(IntegrityError):
+        with engine.begin() as connection:
+            connection.execute(INSERT_DOCUMENT, {"id": "2" * 32, "hash": "b" * 64})

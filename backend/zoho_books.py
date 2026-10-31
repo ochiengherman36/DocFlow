@@ -287,3 +287,67 @@ def find_currency_id(
         ):
             return str(item["currency_id"])
     return None
+
+BOOKS_APPS = {
+    "https://accounts.zoho.com": "https://books.zoho.com",
+    "https://accounts.zoho.eu": "https://books.zoho.eu",
+    "https://accounts.zoho.in": "https://books.zoho.in",
+    "https://accounts.zoho.com.au": "https://books.zoho.com.au",
+    "https://accounts.zoho.jp": "https://books.zoho.jp",
+}
+DEFAULT_BOOKS_APP = "https://books.zoho.com"
+
+
+@dataclass(frozen=True)
+class Bill:
+    bill_id: str
+    bill_number: str
+    status: str | None
+
+
+def bill_url(settings: Settings, organization_id: str, bill_id: str) -> str:
+    """The address of a bill in the Zoho Books web app."""
+    base = BOOKS_APPS.get(settings.zoho_accounts_url, DEFAULT_BOOKS_APP)
+    return f"{base}/app/{organization_id}#/bills/{bill_id}"
+
+
+def find_bill(
+    settings: Settings,
+    access_token: str,
+    api_domain: str | None,
+    vendor_id: str,
+    bill_number: str,
+    *,
+    http: httpx.Client | None = None,
+) -> Bill | None:
+    """A bill from this vendor with exactly this number (ignoring capitals), or None. Void bills do not count."""
+    body = books_request(
+        settings,
+        access_token,
+        api_domain,
+        "GET",
+        "bills",
+        params={"vendor_id": vendor_id, "bill_number": bill_number},
+        http=http,
+    )
+    bills = body.get("bills")
+    for item in bills if isinstance(bills, list) else []:
+        if (
+            isinstance(item, dict)
+            and item.get("bill_id")
+            and str(item.get("vendor_id")) == vendor_id
+            and _same_name(str(item.get("bill_number") or ""), bill_number)
+            and item.get("status") != "void"
+        ):
+            return Bill(str(item["bill_id"]), str(item["bill_number"]), item.get("status"))
+    return None
+
+
+def create_bill(
+    settings: Settings, access_token: str, api_domain: str | None, payload: dict, *, http: httpx.Client | None = None
+) -> Bill:
+    body = books_request(settings, access_token, api_domain, "POST", "bills", json=payload, http=http)
+    bill = body.get("bill")
+    if not isinstance(bill, dict) or not bill.get("bill_id"):
+        raise ZohoError("Zoho Books did not say which bill it made")
+    return Bill(str(bill["bill_id"]), str(bill.get("bill_number") or payload.get("bill_number") or ""), bill.get("status"))

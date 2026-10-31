@@ -38,6 +38,7 @@ class AuditAction(StrEnum):
     EDITED = "edited"
     APPROVED = "approved"
     REJECTED = "rejected"
+    SENT_TO_ZOHO = "sent_to_zoho"
 
 
 class Supplier(Base):
@@ -105,6 +106,10 @@ class Document(Base):
     decided_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     reject_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    zoho_bill_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    zoho_bill_organization_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    zoho_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    zoho_sent_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
