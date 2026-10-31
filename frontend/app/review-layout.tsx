@@ -17,7 +17,12 @@ export default function ReviewLayout({
     <div className="mt-10 grid gap-8 lg:grid-cols-2">
       <PdfPreview url={fileUrl} name={fileName} />
       <div className="flex min-w-0 flex-col gap-8">
-        <InvoiceEditor invoice={result.invoice} initialFlags={result.flags} apiUrl={apiUrl} />
+        <InvoiceEditor 
+          invoice={result.invoice} 
+          documentId={result.document_id} 
+          initialFlags={result.flags} 
+          apiUrl={apiUrl} 
+        />
       </div>
     </div>
   );

@@ -36,7 +36,9 @@ export type FlagCode =
   | "date_too_old"
   | "unknown_currency"
   | "supplier_unknown"
-  | "supplier_near_match";
+  | "supplier_near_match"
+  | "duplicate_file"
+  | "duplicate_invoice";
 
 
 export type Flag = {
@@ -47,6 +49,8 @@ export type Flag = {
 };
 
 export type ExtractResult = {
+  document_id: string;
+  status: string;
   filename: string;
   invoice: Invoice;
   flags: Flag[];
@@ -107,10 +111,10 @@ export async function extractInvoice(file: File, apiUrl: string): Promise<Extrac
   }
 }
 
-export async function validateInvoice(draft: Draft, apiUrl: string, signal?: AbortSignal): Promise<Flag[]> {
+export async function validateInvoice(draft: Draft, apiUrl: string, documentId: string, signal?: AbortSignal): Promise<Flag[]> {
   let res: Response;
   try {
-    res = await authedFetch(`${apiUrl}/validate`, {
+    res = await authedFetch(`${apiUrl}/validate?document_id=${encodeURIComponent(documentId)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(draft),

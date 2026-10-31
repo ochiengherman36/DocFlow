@@ -57,10 +57,12 @@ function ariaFor(field: string, flags: Flag[] | undefined) {
 
 export default function InvoiceEditor({
   invoice,
+  documentId,
   initialFlags,
   apiUrl,
 }: {
   invoice: Invoice;
+  documentId: string;
   initialFlags: Flag[];
   apiUrl: string;
 }) {
@@ -88,7 +90,7 @@ export default function InvoiceEditor({
       const controller = new AbortController();
       inFlight.current = controller;
       try {
-        const fresh = await validateInvoice(next, apiUrl, controller.signal);
+        const fresh = await validateInvoice(next, apiUrl, documentId, controller.signal);
         if (controller.signal.aborted) return;
         setFlags(fresh);
         setCheckError(null);
