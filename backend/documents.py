@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from models import AuditAction, AuditEntry, Document, DocumentStatus, Extraction
 from schemas import Flag, FlagCode, InvoiceData, Severity
-from supplier_store import supplier_key
+from supplier_store import add_supplier, supplier_key
 from validation import DuplicateMatch
 from diffs import FieldChange, diff_invoice
 
@@ -54,6 +54,49 @@ def apply_edit(session: Session, document: Document, invoice: InvoiceData, actor
     )
     return changes
 
+def approve_document(
+    session: Session, document: Document, invoice: InvoiceData, actor: str, warnings: list[Flag]
+) -> bool:
+    """Mark a pending document approved and add its supplier to the list if it is new.
+
+    Returns True when the supplier was new. The caller has already refused errors and commits.
+    """
+    supplier_added = False
+    if invoice.supplier and invoice.supplier.strip():
+        supplier, supplier_added = add_supplier(session, invoice.supplier)
+        document.supplier_id = supplier.id
+
+    document.status = DocumentStatus.APPROVED.value
+    document.decided_by = actor
+    document.decided_at = datetime.datetime.now(datetime.UTC)
+    document.reject_reason = None
+    session.add(
+        AuditEntry(
+            document_id=document.id,
+            extraction_id=document.extraction.id if document.extraction else None,
+            action=AuditAction.APPROVED.value,
+            actor=actor,
+            details={"supplier_added": supplier_added, "warnings": [f.code.value for f in warnings]},
+        )
+    )
+    return supplier_added
+
+
+def reject_document(session: Session, document: Document, reason: str, actor: str) -> None:
+    """Mark a pending document rejected, with the reason. The caller commits."""
+    document.status = DocumentStatus.REJECTED.value
+    document.decided_by = actor
+    document.decided_at = datetime.datetime.now(datetime.UTC)
+    document.reject_reason = reason
+    session.add(
+        AuditEntry(
+            document_id=document.id,
+            extraction_id=document.extraction.id if document.extraction else None,
+            action=AuditAction.REJECTED.value,
+            actor=actor,
+            details={"reason": reason},
+        )
+    )
 
 def find_by_hash(session: Session, digest: str) -> Document | None:
     return session.scalars(select(Document).where(Document.file_hash == digest)).first()

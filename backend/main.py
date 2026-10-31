@@ -1,8 +1,10 @@
+import datetime
 import uuid
+from typing import Any
 from typing import Any
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
@@ -17,10 +19,12 @@ from documents import (
     get_document,
     save_new_document,
     find_duplicate_invoices,
+    approve_document,
+    reject_document,
 )
 from extractor import ExtractionError, extract_invoice
 from pdf_reader import PdfReadError
-from schemas import Flag, InvoiceData
+from schemas import Flag, InvoiceData, Severity
 from security import AccessKeyMiddleware
 from supplier_store import list_supplier_names
 from validation import validate
@@ -62,6 +66,21 @@ class ExtractResponse(BaseModel):
 
 
 class ValidateResponse(BaseModel):
+    flags: list[Flag] = Field(default_factory=list)
+
+class RejectRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    reason: str = Field(min_length=1, max_length=1000)
+
+
+class DecisionResponse(BaseModel):
+    document_id: uuid.UUID
+    status: str
+    decided_by: str
+    decided_at: datetime.datetime
+    reject_reason: str | None = None
+    supplier_added: bool = False
     flags: list[Flag] = Field(default_factory=list)
 
 class SaveResponse(BaseModel):
@@ -230,4 +249,86 @@ def save_document(
         invoice=stored,
         flags=check_invoice(stored, session, document.id),
         changes=[{"field": c.field, "from": c.old, "to": c.new} for c in changes],
+    )
+
+def load_pending(session: Session, document_id: uuid.UUID):
+    """Load and lock a document for a decision. Only a pending one can be decided."""
+    document = get_document(session, document_id, for_update=True)
+    if document is None:
+        raise HTTPException(status_code=404, detail="That document was not found.")
+    if document.status != "pending":
+        raise HTTPException(status_code=409, detail=f"This invoice was already {document.status}.")
+    return document
+
+
+@app.post("/documents/{document_id}/approve", response_model=DecisionResponse)
+def approve(
+    document_id: uuid.UUID,
+    session: Session = Depends(get_db),
+    actor: str = Depends(reviewer_name),
+):
+    """Approve the stored version. It is checked again here, so the screen cannot skip the checks.
+
+    Errors refuse the approval with 409 and the flags. Warnings do not.
+    """
+    try:
+        document = load_pending(session, document_id)
+        invoice = InvoiceData.model_validate(document.current_data)
+        flags = check_invoice(invoice, session, document.id)
+
+        if any(f.severity == Severity.ERROR for f in flags):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "This invoice has errors and cannot be approved until they are fixed.",
+                    "flags": [f.model_dump(mode="json") for f in flags],
+                },
+            )
+
+        supplier_added = approve_document(session, document, invoice, actor, flags)
+        session.commit()
+    except IntegrityError as exc:
+        # The unique index on approved invoices: another copy was approved after our check.
+        session.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "The same invoice from this supplier was approved a moment ago. Refresh and check again.",
+                "flags": [],
+            },
+        ) from exc
+    except OperationalError as exc:
+        raise database_unavailable(exc) from exc
+
+    return DecisionResponse(
+        document_id=document.id,
+        status=document.status,
+        decided_by=document.decided_by,
+        decided_at=document.decided_at,
+        supplier_added=supplier_added,
+        flags=flags,
+    )
+
+
+@app.post("/documents/{document_id}/reject", response_model=DecisionResponse)
+def reject(
+    document_id: uuid.UUID,
+    body: RejectRequest,
+    session: Session = Depends(get_db),
+    actor: str = Depends(reviewer_name),
+):
+    """Reject a pending invoice. A reason is required."""
+    try:
+        document = load_pending(session, document_id)
+        reject_document(session, document, body.reason, actor)
+        session.commit()
+    except OperationalError as exc:
+        raise database_unavailable(exc) from exc
+
+    return DecisionResponse(
+        document_id=document.id,
+        status=document.status,
+        decided_by=document.decided_by,
+        decided_at=document.decided_at,
+        reject_reason=document.reject_reason,
     )
