@@ -1,4 +1,5 @@
 import datetime
+from dataclasses import dataclass
 from typing import Sequence
 
 from schemas import Flag, FlagCode, InvoiceData, Severity
@@ -14,6 +15,12 @@ KNOWN_CURRENCIES = frozenset(
         "USD", "EUR", "GBP", "AED", "INR", "CNY", "JPY", "CAD", "AUD", "CHF",
     }
 )
+
+@dataclass(frozen=True)
+class DuplicateMatch:
+    status: str
+    filename: str
+    when: datetime.datetime | None = None
 
 
 def _flag(code: FlagCode, severity: Severity, field: str, message: str) -> Flag:
@@ -118,6 +125,25 @@ def _check_supplier(invoice: InvoiceData, known_suppliers: Sequence[str]) -> lis
         ]
     return []
 
+def _check_duplicates(invoice: InvoiceData, duplicates: Sequence[DuplicateMatch]) -> list[Flag]:
+    if not duplicates or not invoice.invoice_number:
+        return []
+
+    approved = [match for match in duplicates if match.status == "approved"]
+    first = approved[0] if approved else duplicates[0]
+    when = first.when.strftime("%d %b %Y") if first.when else "an earlier date"
+    who = f"Invoice {invoice.invoice_number}" + (f" from {invoice.supplier}" if invoice.supplier else "")
+    more = len(duplicates) - 1
+    extra = f" and {more} more like it" if more > 0 else ""
+
+    if approved:
+        severity = Severity.ERROR
+        message = f"{who} was already approved on {when} (file: {first.filename}){extra}."
+    else:
+        severity = Severity.WARNING
+        message = f"{who} was already uploaded on {when} and is awaiting review (file: {first.filename}){extra}."
+    return [_flag(FlagCode.DUPLICATE_INVOICE, severity, "invoice_number", message)]
+
 def _check_date(invoice: InvoiceData, today: datetime.date, max_age_days: int) -> list[Flag]:
     if invoice.date is None:
         return []
@@ -182,12 +208,14 @@ def validate(
     max_age_days: int = DEFAULT_MAX_AGE_DAYS,
     tolerance: float = DEFAULT_TOLERANCE,
     known_suppliers: Sequence[str] = (),
+    duplicates: Sequence[DuplicateMatch] = (),
 ) -> list[Flag]:
     """Return the problems found on an invoice. Never raises, never calls Claude."""
     today = today or datetime.date.today()
     return [
         *_check_missing(invoice),
         *_check_supplier(invoice, known_suppliers),
+        *_check_duplicates(invoice, duplicates),
         *_check_math(invoice, tolerance),
         *_check_date(invoice, today, max_age_days),
         *_check_currency(invoice),

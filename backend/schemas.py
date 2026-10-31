@@ -108,7 +108,8 @@ class FlagCode(StrEnum):
     SUPPLIER_UNKNOWN = "supplier_unknown"
     SUPPLIER_NEAR_MATCH = "supplier_near_match"
     DUPLICATE_FILE = "duplicate_file"
-
+    DUPLICATE_INVOICE = "duplicate_invoice"
+    
 
 class Flag(BaseModel):
     """One problem found on an invoice, tied to the field it refers to.

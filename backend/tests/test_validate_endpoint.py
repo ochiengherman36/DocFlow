@@ -122,7 +122,9 @@ def test_extract_and_validate_agree(monkeypatch):
     monkeypatch.setattr(main, "extract_invoice", lambda data, settings=None, client=None: invoice_from_expected(EXPECTED[name]))
     extracted = client.post("/extract", files={"file": (name, (SAMPLES / name).read_bytes(), "application/pdf")}).json()
 
-    revalidated = client.post("/validate", json=extracted["invoice"]).json()
+    revalidated = client.post(
+        "/validate", json=extracted["invoice"], params={"document_id": extracted["document_id"]}
+    ).json()
     assert revalidated["flags"] == extracted["flags"]
 
 

@@ -14,6 +14,7 @@ from documents import (
     find_by_hash,
     record_duplicate_upload,
     save_new_document,
+    find_duplicate_invoices,
 )
 from extractor import ExtractionError, extract_invoice
 from pdf_reader import PdfReadError
@@ -62,9 +63,12 @@ class ValidateResponse(BaseModel):
     flags: list[Flag] = Field(default_factory=list)
 
 
-def check_invoice(invoice: InvoiceData, session: Session) -> list[Flag]:
+def check_invoice(
+    invoice: InvoiceData, session: Session, exclude_document_id: uuid.UUID | None = None
+) -> list[Flag]:
     try:
         known_suppliers = list_supplier_names(session)
+        duplicates = find_duplicate_invoices(session, invoice, exclude_document_id)
     except OperationalError as exc:
         raise HTTPException(
             status_code=503, detail="The database is not available. Please try again in a moment."
@@ -74,6 +78,7 @@ def check_invoice(invoice: InvoiceData, session: Session) -> list[Flag]:
         max_age_days=settings.max_invoice_age_days,
         tolerance=settings.validation_tolerance,
         known_suppliers=known_suppliers,
+        duplicates=duplicates,
     )
 
 DEFAULT_REVIEWER = "reviewer"
@@ -99,7 +104,7 @@ def stored_result(document, filename: str, session: Session, actor: str) -> Extr
         status=document.status,
         filename=filename,
         invoice=invoice,
-        flags=[duplicate_file_flag(document), *check_invoice(invoice, session)],
+        flags=[duplicate_file_flag(document), *check_invoice(invoice, session, document.id)],
     )
 
 @app.get("/health")
@@ -176,10 +181,14 @@ def extract(
         status=document.status,
         filename=filename,
         invoice=invoice,
-        flags=check_invoice(invoice, session),
+        flags=check_invoice(invoice, session, document.id),
     )
 
 @app.post("/validate", response_model=ValidateResponse)
-def validate_invoice(invoice: InvoiceData, session: Session = Depends(get_db)):
+def validate_invoice(
+    invoice: InvoiceData,
+    document_id: uuid.UUID | None = None,
+    session: Session = Depends(get_db),
+):
     """Re-check an invoice the user has edited. Takes the invoice as the request body."""
-    return ValidateResponse(flags=check_invoice(invoice, session))
+    return ValidateResponse(flags=check_invoice(invoice, session, document_id))

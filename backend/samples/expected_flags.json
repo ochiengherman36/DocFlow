@@ -26,5 +26,6 @@
       "field": "date",
       "note": "The invoice has no date printed on it."
     }
-  ]
+  ],
+  "invoice_digital_rescan.pdf": []
 }

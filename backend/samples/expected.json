@@ -154,5 +154,34 @@
     "subtotal": 27100.0,
     "tax": 4336.0,
     "total": 31436.0
+  },
+  "invoice_digital_rescan.pdf": {
+    "supplier": "Kijani Fuel Distributors Ltd",
+    "invoice_number": "KFD-2026-0412",
+    "date": "2026-10-12",
+    "currency": "KES",
+    "line_items": [
+      {
+        "description": "Diesel (AGO)",
+        "quantity": 2000,
+        "unit_price": 198.5,
+        "amount": 397000.0
+      },
+      {
+        "description": "Super Petrol (PMS)",
+        "quantity": 500,
+        "unit_price": 212.75,
+        "amount": 106375.0
+      },
+      {
+        "description": "Delivery charge",
+        "quantity": 1,
+        "unit_price": 3500.0,
+        "amount": 3500.0
+      }
+    ],
+    "subtotal": 506875.0,
+    "tax": 81100.0,
+    "total": 587975.0
   }
 }
