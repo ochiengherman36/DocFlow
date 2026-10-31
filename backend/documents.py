@@ -6,6 +6,7 @@ import re
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy import func, select
 
 from models import AuditAction, AuditEntry, Document, DocumentStatus, Extraction
 from schemas import Flag, FlagCode, InvoiceData, Severity
@@ -97,6 +98,27 @@ def reject_document(session: Session, document: Document, reason: str, actor: st
             details={"reason": reason},
         )
     )
+
+def audit_trail(session: Session, document_id: uuid.UUID) -> list[AuditEntry]:
+    """Every entry for one document, newest first. The id grows with each write, so it is the true order."""
+    return list(
+        session.scalars(
+            select(AuditEntry).where(AuditEntry.document_id == document_id).order_by(AuditEntry.id.desc())
+        )
+    )
+
+
+def list_documents(
+    session: Session, *, status: str | None = None, limit: int = 50, offset: int = 0
+) -> tuple[list[Document], int]:
+    """One page of documents, newest first, and how many match in all."""
+    query = select(Document)
+    count = select(func.count()).select_from(Document)
+    if status is not None:
+        query = query.where(Document.status == status)
+        count = count.where(Document.status == status)
+    page = session.scalars(query.order_by(Document.created_at.desc(), Document.id).limit(limit).offset(offset))
+    return list(page), session.scalar(count)
 
 def find_by_hash(session: Session, digest: str) -> Document | None:
     return session.scalars(select(Document).where(Document.file_hash == digest)).first()

@@ -1,8 +1,7 @@
 import datetime
 import uuid
-from typing import Any
-from typing import Any
-from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
+from typing import Any, Literal
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.exc import IntegrityError, OperationalError
@@ -21,6 +20,8 @@ from documents import (
     find_duplicate_invoices,
     approve_document,
     reject_document,
+    audit_trail,
+    list_documents,
 )
 from extractor import ExtractionError, extract_invoice
 from pdf_reader import PdfReadError
@@ -82,6 +83,39 @@ class DecisionResponse(BaseModel):
     reject_reason: str | None = None
     supplier_added: bool = False
     flags: list[Flag] = Field(default_factory=list)
+
+class AuditItem(BaseModel):
+    id: int
+    action: str
+    actor: str
+    at: datetime.datetime
+    details: dict[str, Any] | None = None
+
+
+class AuditResponse(BaseModel):
+    document_id: uuid.UUID
+    status: str
+    entries: list[AuditItem]
+
+
+class DocumentItem(BaseModel):
+    document_id: uuid.UUID
+    filename: str
+    status: str
+    supplier: str | None = None
+    invoice_number: str | None = None
+    date: str | None = None
+    currency: str | None = None
+    total: float | None = None
+    created_at: datetime.datetime
+    decided_by: str | None = None
+    decided_at: datetime.datetime | None = None
+    reject_reason: str | None = None
+
+
+class DocumentList(BaseModel):
+    documents: list[DocumentItem]
+    total: int
 
 class SaveResponse(BaseModel):
     document_id: uuid.UUID
@@ -331,4 +365,56 @@ def reject(
         decided_by=document.decided_by,
         decided_at=document.decided_at,
         reject_reason=document.reject_reason,
+    )
+
+def document_item(document) -> DocumentItem:
+    data = document.current_data or {}
+    return DocumentItem(
+        document_id=document.id,
+        filename=document.filename,
+        status=document.status,
+        supplier=data.get("supplier"),
+        invoice_number=data.get("invoice_number"),
+        date=data.get("date"),
+        currency=data.get("currency"),
+        total=(data.get("totals") or {}).get("total"),
+        created_at=document.created_at,
+        decided_by=document.decided_by,
+        decided_at=document.decided_at,
+        reject_reason=document.reject_reason,
+    )
+
+
+@app.get("/documents", response_model=DocumentList)
+def documents_list(
+    status: Literal["pending", "approved", "rejected"] | None = None,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    session: Session = Depends(get_db),
+):
+    """A page of documents, newest first. `total` counts every match, not just this page."""
+    try:
+        documents, total = list_documents(session, status=status, limit=limit, offset=offset)
+    except OperationalError as exc:
+        raise database_unavailable(exc) from exc
+    return DocumentList(documents=[document_item(d) for d in documents], total=total)
+
+
+@app.get("/documents/{document_id}/audit", response_model=AuditResponse)
+def document_audit(document_id: uuid.UUID, session: Session = Depends(get_db)):
+    """What happened to a document, newest first: who did what, and when."""
+    try:
+        document = get_document(session, document_id)
+        if document is None:
+            raise HTTPException(status_code=404, detail="That document was not found.")
+        entries = audit_trail(session, document_id)
+    except OperationalError as exc:
+        raise database_unavailable(exc) from exc
+    return AuditResponse(
+        document_id=document.id,
+        status=document.status,
+        entries=[
+            AuditItem(id=e.id, action=e.action, actor=e.actor, at=e.created_at, details=e.details)
+            for e in entries
+        ],
     )
