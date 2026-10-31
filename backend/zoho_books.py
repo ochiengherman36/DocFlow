@@ -272,3 +272,18 @@ def create_vendor(
     if not isinstance(contact, dict) or not contact.get("contact_id"):
         raise ZohoError("Zoho Books did not say which vendor it made")
     return Contact(str(contact["contact_id"]), str(contact.get("contact_name") or name), True)
+
+def find_currency_id(
+    settings: Settings, access_token: str, api_domain: str | None, code: str, *, http: httpx.Client | None = None
+) -> str | None:
+    """The Zoho Books id of a currency such as KES, or None if the organization does not have it."""
+    body = books_request(settings, access_token, api_domain, "GET", "settings/currencies", http=http)
+    currencies = body.get("currencies")
+    for item in currencies if isinstance(currencies, list) else []:
+        if (
+            isinstance(item, dict)
+            and item.get("currency_id")
+            and str(item.get("currency_code") or "").upper() == code.upper()
+        ):
+            return str(item["currency_id"])
+    return None
