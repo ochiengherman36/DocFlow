@@ -107,6 +107,7 @@ class FlagCode(StrEnum):
     UNKNOWN_CURRENCY = "unknown_currency"
     SUPPLIER_UNKNOWN = "supplier_unknown"
     SUPPLIER_NEAR_MATCH = "supplier_near_match"
+    DUPLICATE_FILE = "duplicate_file"
 
 
 class Flag(BaseModel):

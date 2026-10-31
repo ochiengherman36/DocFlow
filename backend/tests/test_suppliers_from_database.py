@@ -92,7 +92,8 @@ def test_extract_uses_the_table_as_well(monkeypatch, database):
     def codes():
         r = client.post("/extract", files={"file": ("x.pdf", pdf, "application/pdf")})
         assert r.status_code == 200
-        return [f["code"] for f in r.json()["flags"]]
+        return [f["code"] for f in r.json()["flags"] if f["code"] != "duplicate_file"]
+
 
     assert codes() == ["supplier_near_match"]
 

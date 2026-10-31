@@ -1,3 +1,4 @@
+import uuid
 import json
 from pathlib import Path
 
@@ -47,19 +48,20 @@ def test_invalid_flag_is_rejected(bad):
 
 
 def test_response_has_empty_flags_by_default():
-    response = ExtractResponse(filename="a.pdf", invoice=InvoiceData())
+    response = ExtractResponse(document_id=uuid.uuid4(), status="pending", filename="a.pdf", invoice=InvoiceData())
     data = response.model_dump(mode="json")
     assert data["flags"] == []
-    assert set(data) == {"filename", "invoice", "flags"}
+    assert set(data) == {"document_id", "status", "filename", "invoice", "flags"}
 
 
 def test_response_serialises_flags():
     flag = Flag(code=FlagCode.MISSING_FIELD, severity=Severity.ERROR, field="date", message="No date.")
-    response = ExtractResponse(filename="a.pdf", invoice=InvoiceData(), flags=[flag])
+    response = ExtractResponse(
+        document_id=uuid.uuid4(), status="pending", filename="a.pdf", invoice=InvoiceData(), flags=[flag]
+    )
     assert response.model_dump(mode="json")["flags"] == [
         {"code": "missing_field", "severity": "error", "field": "date", "message": "No date."}
     ]
-
 
 def test_expected_flags_file_uses_valid_codes():
     """Every flag listed in samples/expected_flags.json must be a flag the model can express."""

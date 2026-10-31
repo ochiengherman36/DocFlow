@@ -1,11 +1,20 @@
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+import uuid
+
+from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from config import get_settings
 from db import get_db
+from documents import (
+    duplicate_file_flag,
+    file_hash,
+    find_by_hash,
+    record_duplicate_upload,
+    save_new_document,
+)
 from extractor import ExtractionError, extract_invoice
 from pdf_reader import PdfReadError
 from schemas import Flag, InvoiceData
@@ -42,6 +51,8 @@ PDF_MAGIC = b"%PDF-"
 
 
 class ExtractResponse(BaseModel):
+    document_id: uuid.UUID
+    status: str
     filename: str
     invoice: InvoiceData
     flags: list[Flag] = Field(default_factory=list)
@@ -65,6 +76,31 @@ def check_invoice(invoice: InvoiceData, session: Session) -> list[Flag]:
         known_suppliers=known_suppliers,
     )
 
+DEFAULT_REVIEWER = "reviewer"
+
+
+def reviewer_name(x_reviewer: str | None = Header(default=None)) -> str:
+    name = (x_reviewer or "").strip()[:100]
+    return name or DEFAULT_REVIEWER
+
+
+def database_unavailable(exc: Exception) -> HTTPException:
+    return HTTPException(
+        status_code=503, detail="The database is not available. Please try again in a moment."
+    )
+
+
+def stored_result(document, filename: str, session: Session, actor: str) -> ExtractResponse:
+    record_duplicate_upload(session, document, filename=filename, actor=actor)
+    session.commit()
+    invoice = InvoiceData.model_validate(document.current_data)
+    return ExtractResponse(
+        document_id=document.id,
+        status=document.status,
+        filename=filename,
+        invoice=invoice,
+        flags=[duplicate_file_flag(document), *check_invoice(invoice, session)],
+    )
 
 @app.get("/health")
 def health():
@@ -76,7 +112,11 @@ def check_access():
     return {"status": "ok"}
 
 @app.post("/extract", response_model=ExtractResponse)
-def extract(file: UploadFile | None = File(default=None), session: Session = Depends(get_db)):
+def extract(
+    file: UploadFile | None = File(default=None),
+    session: Session = Depends(get_db),
+    actor: str = Depends(reviewer_name),
+):
     if file is None:
         raise HTTPException(status_code=400, detail="No file uploaded. Send a PDF in the 'file' field.")
 
@@ -93,6 +133,17 @@ def extract(file: UploadFile | None = File(default=None), session: Session = Dep
     if not data.startswith(PDF_MAGIC):
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
 
+    filename = file.filename or "upload.pdf"
+    digest = file_hash(data)
+
+    try:
+        existing = find_by_hash(session, digest)
+    except OperationalError as exc:
+        raise database_unavailable(exc) from exc
+    if existing is not None:
+        return stored_result(existing, filename, session, actor)
+    session.rollback()
+
     try:
         invoice = extract_invoice(data, settings=settings)
     except PdfReadError as exc:
@@ -100,12 +151,33 @@ def extract(file: UploadFile | None = File(default=None), session: Session = Dep
     except ExtractionError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    return ExtractResponse(
-        filename=file.filename or "upload.pdf",
-        invoice=invoice,
-                flags=check_invoice(invoice, session),
-    )
+    try:
+        document = save_new_document(
+            session,
+            filename=filename,
+            digest=digest,
+            size=len(data),
+            invoice=invoice,
+            model=settings.anthropic_model,
+            actor=actor,
+        )
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        existing = find_by_hash(session, digest)
+        if existing is None:
+            raise
+        return stored_result(existing, filename, session, actor)
+    except OperationalError as exc:
+        raise database_unavailable(exc) from exc
 
+    return ExtractResponse(
+        document_id=document.id,
+        status=document.status,
+        filename=filename,
+        invoice=invoice,
+        flags=check_invoice(invoice, session),
+    )
 
 @app.post("/validate", response_model=ValidateResponse)
 def validate_invoice(invoice: InvoiceData, session: Session = Depends(get_db)):
