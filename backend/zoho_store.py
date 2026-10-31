@@ -53,8 +53,9 @@ def save_tokens(
     session.flush()
 
 
-def get_tokens(session: Session, cipher: TokenCipher) -> StoredTokens | None:
-    row = session.get(ZohoConnection, CONNECTION_ID)
+def get_tokens(session: Session, cipher: TokenCipher, *, lock: bool = False) -> StoredTokens | None:
+    """Read the connection. With `lock` the row is locked and re-read until the transaction ends."""
+    row = session.get(ZohoConnection, CONNECTION_ID, with_for_update=lock, populate_existing=lock)
     if row is None:
         return None
     return StoredTokens(
@@ -67,6 +68,30 @@ def get_tokens(session: Session, cipher: TokenCipher) -> StoredTokens | None:
         connected_at=_as_utc(row.connected_at),
     )
 
+def update_access_token(
+    session: Session,
+    cipher: TokenCipher,
+    *,
+    access_token: str,
+    expires_at: datetime.datetime,
+    refresh_token: str | None = None,
+    scope: str | None = None,
+    api_domain: str | None = None,
+) -> None:
+    """Save a refreshed access token. The refresh token, scope and domain change only if given."""
+    row = session.get(ZohoConnection, CONNECTION_ID)
+    if row is None:
+        raise LookupError("There is no Zoho connection to update.")
+
+    row.access_token_enc = cipher.encrypt(access_token)
+    row.expires_at = _as_utc(expires_at)
+    if refresh_token:
+        row.refresh_token_enc = cipher.encrypt(refresh_token)
+    if scope:
+        row.scope = scope
+    if api_domain:
+        row.api_domain = api_domain
+    session.flush()
 
 def delete_tokens(session: Session) -> bool:
     """Remove the stored connection. Returns False if there was none. The caller commits."""

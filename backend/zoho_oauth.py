@@ -14,6 +14,7 @@ STATE_TTL = datetime.timedelta(minutes=10)
 MAX_STATE_LENGTH = 128
 DEFAULT_TOKEN_LIFETIME = 3600
 TOKEN_TIMEOUT_SECONDS = 15
+REFRESH_REJECTED = {"invalid_code", "invalid_grant", "invalid_token"}
 
 SCOPES = [
     "ZohoBooks.bills.CREATE",
@@ -22,6 +23,34 @@ SCOPES = [
     "ZohoBooks.contacts.READ",
     "ZohoBooks.settings.READ",
 ]
+
+
+class ZohoError(Exception):
+    def __init__(self, message: str, code: str | None = None):
+        super().__init__(message)
+        self.code = code
+
+
+class ZohoRefreshRejected(ZohoError):
+    pass
+
+
+@dataclass(frozen=True)
+class TokenResponse:
+    access_token: str
+    refresh_token: str
+    expires_in: int
+    scope: str | None
+    api_domain: str | None
+
+
+@dataclass(frozen=True)
+class RefreshResponse:
+    access_token: str
+    expires_in: int
+    refresh_token: str | None
+    scope: str | None
+    api_domain: str | None
 
 
 def create_state(session: Session, created_by: str, *, now: datetime.datetime | None = None) -> str:
@@ -50,19 +79,6 @@ def authorization_url(settings: Settings, state: str) -> str:
     return f"{settings.zoho_accounts_url}/oauth/v2/auth?{query}"
 
 
-class ZohoError(Exception):
-    pass
-
-
-@dataclass(frozen=True)
-class TokenResponse:
-    access_token: str
-    refresh_token: str
-    expires_in: int
-    scope: str | None
-    api_domain: str | None
-
-
 def consume_state(session: Session, state: str | None, *, now: datetime.datetime | None = None) -> str | None:
     """Use up a state. Returns who started the connection, or None if the state is not valid.
 
@@ -86,21 +102,15 @@ def consume_state(session: Session, state: str | None, *, now: datetime.datetime
     return row.created_by
 
 
-def exchange_code(settings: Settings, code: str, *, http: httpx.Client | None = None) -> TokenResponse:
-    """Trade the one-time code for tokens. Zoho reports some failures as a 200 with an error field."""
-    form = {
-        "grant_type": "authorization_code",
-        "code": code,
-        "client_id": settings.zoho_client_id,
-        "client_secret": settings.zoho_client_secret.get_secret_value(),
-        "redirect_uri": settings.zoho_redirect_uri,
-    }
+def _post_token(settings: Settings, form: dict[str, str], http: httpx.Client | None) -> dict:
+    """Send a form to Zoho's token address. Zoho reports some failures as a 200 with an error field."""
+    url = f"{settings.zoho_accounts_url}/oauth/v2/token"
     try:
         if http is None:
             with httpx.Client(timeout=TOKEN_TIMEOUT_SECONDS) as owned:
-                response = owned.post(f"{settings.zoho_accounts_url}/oauth/v2/token", data=form)
+                response = owned.post(url, data=form)
         else:
-            response = http.post(f"{settings.zoho_accounts_url}/oauth/v2/token", data=form)
+            response = http.post(url, data=form)
     except httpx.HTTPError as exc:
         raise ZohoError("could not reach Zoho") from exc
 
@@ -112,20 +122,79 @@ def exchange_code(settings: Settings, code: str, *, http: httpx.Client | None = 
     if not isinstance(body, dict):
         raise ZohoError("Zoho answered with something unexpected")
     if "error" in body:
-        raise ZohoError(str(body["error"]))
+        code = str(body["error"])
+        raise ZohoError(code, code=code)
     if response.status_code >= 400:
         raise ZohoError(f"Zoho refused the request (HTTP {response.status_code})")
+    return body
+
+
+def _lifetime(body: dict) -> int:
+    expires_in = body.get("expires_in")
+    return expires_in if isinstance(expires_in, int) and expires_in > 0 else DEFAULT_TOKEN_LIFETIME
+
+
+def exchange_code(settings: Settings, code: str, *, http: httpx.Client | None = None) -> TokenResponse:
+    """Trade the one-time code for tokens."""
+    body = _post_token(
+        settings,
+        {
+            "grant_type": "authorization_code",
+            "code": code,
+            "client_id": settings.zoho_client_id,
+            "client_secret": settings.zoho_client_secret.get_secret_value(),
+            "redirect_uri": settings.zoho_redirect_uri,
+        },
+        http,
+    )
 
     access_token = body.get("access_token")
     refresh_token = body.get("refresh_token")
     if not access_token or not refresh_token:
         raise ZohoError("Zoho did not send both tokens")
 
-    expires_in = body.get("expires_in")
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,
-        expires_in=expires_in if isinstance(expires_in, int) and expires_in > 0 else DEFAULT_TOKEN_LIFETIME,
+        expires_in=_lifetime(body),
+        scope=body.get("scope"),
+        api_domain=body.get("api_domain"),
+    )
+
+
+def refresh_access_token(
+    settings: Settings, refresh_token: str, *, http: httpx.Client | None = None
+) -> RefreshResponse:
+    """Get a new access token. Zoho does not send a new refresh token, so the old one stays valid.
+
+    Raises ZohoRefreshRejected only when Zoho says the refresh token itself is no good. Any other
+    failure (network, rate limit, a bad client secret) is a plain ZohoError, because the saved
+    connection may still be fine.
+    """
+    try:
+        body = _post_token(
+            settings,
+            {
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+                "client_id": settings.zoho_client_id,
+                "client_secret": settings.zoho_client_secret.get_secret_value(),
+            },
+            http,
+        )
+    except ZohoError as exc:
+        if exc.code in REFRESH_REJECTED:
+            raise ZohoRefreshRejected(str(exc), code=exc.code) from exc
+        raise
+
+    access_token = body.get("access_token")
+    if not access_token:
+        raise ZohoError("Zoho did not send an access token")
+
+    return RefreshResponse(
+        access_token=access_token,
+        expires_in=_lifetime(body),
+        refresh_token=body.get("refresh_token"),
         scope=body.get("scope"),
         api_domain=body.get("api_domain"),
     )
