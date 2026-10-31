@@ -46,6 +46,8 @@ class Supplier(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(255))
     name_key: Mapped[str] = mapped_column(String(255), unique=True)
+    zoho_vendor_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    zoho_vendor_organization_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 class ZohoConnection(Base):

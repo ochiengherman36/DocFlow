@@ -49,8 +49,9 @@ def table_names(engine) -> set[str]:
 
 def test_the_migrations_form_one_line():
     script = ScriptDirectory(str(BASE_DIR / "migrations"))
-    assert script.get_heads() == ["0002"]
-    assert [r.revision for r in script.walk_revisions()] == ["0002", "0001"]
+    assert script.get_heads() == ["0003"]
+    assert [r.revision for r in script.walk_revisions()] == ["0003", "0002", "0001"]
+
 
 def test_upgrade_creates_every_table(engine):
     upgrade(engine)
@@ -79,7 +80,7 @@ def test_running_upgrade_twice_changes_nothing(engine):
 def test_the_database_records_which_version_it_is_at(engine):
     upgrade(engine)
     with engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0002"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0003"
 
     downgrade(engine)
     with engine.connect() as connection:
@@ -181,3 +182,23 @@ def test_postgres_gets_the_other_indexes_and_constraints(postgres_sql):
 def test_postgres_sql_records_the_version(postgres_sql):
     assert "INSERT INTO alembic_version (version_num) VALUES ('0001')" in postgres_sql
     assert "UPDATE alembic_version SET version_num='0002' WHERE alembic_version.version_num = '0001'" in postgres_sql
+    assert "UPDATE alembic_version SET version_num='0003' WHERE alembic_version.version_num = '0002'" in postgres_sql
+
+
+def test_suppliers_get_their_zoho_vendor_columns(engine):
+    upgrade(engine)
+    columns = {c["name"]: c for c in inspect(engine).get_columns("suppliers")}
+    assert columns["zoho_vendor_id"]["nullable"] is True
+    assert columns["zoho_vendor_organization_id"]["nullable"] is True
+
+
+def test_the_vendor_columns_can_be_removed_again_without_losing_suppliers(engine):
+    upgrade(engine, "0002")
+    with engine.begin() as connection:
+        connection.execute(text("INSERT INTO suppliers (name, name_key) VALUES ('Kept Ltd', 'kept')"))
+    upgrade(engine)
+    downgrade(engine, "0002")
+    columns = {c["name"] for c in inspect(engine).get_columns("suppliers")}
+    assert "zoho_vendor_id" not in columns
+    with engine.connect() as connection:
+        assert connection.execute(text("SELECT name FROM suppliers")).scalar() == "Kept Ltd"

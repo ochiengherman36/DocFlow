@@ -216,3 +216,59 @@ def find_expense_account(
     if chosen is None:
         raise ZohoError(NO_EXPENSE_ACCOUNT)
     return chosen
+
+@dataclass(frozen=True)
+class Contact:
+    contact_id: str
+    name: str
+    active: bool
+
+
+def _same_name(a: str, b: str) -> bool:
+    return " ".join(a.split()).casefold() == " ".join(b.split()).casefold()
+
+
+def find_vendor(
+    settings: Settings, access_token: str, api_domain: str | None, name: str, *, http: httpx.Client | None = None
+) -> Contact | None:
+    """The vendor whose name is exactly this one (ignoring capitals and extra spaces), or None.
+
+    Inactive vendors are included, because Zoho Books will not let a second one be made with the same name.
+    """
+    body = books_request(
+        settings,
+        access_token,
+        api_domain,
+        "GET",
+        "contacts",
+        params={"contact_name": name, "filter_by": "Status.All", "per_page": ACCOUNTS_PER_PAGE},
+        http=http,
+    )
+    contacts = body.get("contacts")
+    for item in contacts if isinstance(contacts, list) else []:
+        if (
+            isinstance(item, dict)
+            and item.get("contact_id")
+            and item.get("contact_type") == "vendor"
+            and _same_name(str(item.get("contact_name") or ""), name)
+        ):
+            return Contact(str(item["contact_id"]), str(item["contact_name"]), item.get("status") != "inactive")
+    return None
+
+
+def create_vendor(
+    settings: Settings, access_token: str, api_domain: str | None, name: str, *, http: httpx.Client | None = None
+) -> Contact:
+    body = books_request(
+        settings,
+        access_token,
+        api_domain,
+        "POST",
+        "contacts",
+        json={"contact_name": name, "contact_type": "vendor"},
+        http=http,
+    )
+    contact = body.get("contact")
+    if not isinstance(contact, dict) or not contact.get("contact_id"):
+        raise ZohoError("Zoho Books did not say which vendor it made")
+    return Contact(str(contact["contact_id"]), str(contact.get("contact_name") or name), True)
