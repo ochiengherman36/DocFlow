@@ -30,7 +30,7 @@ export default function AccessGate({ children }: { children: React.ReactNode }) 
             onClick={() => clearAccessKey()}
             className="text-sm text-zinc-600 underline dark:text-zinc-400"
           >
-            Lock
+            Log out
           </button>
         </div>
         {children}
