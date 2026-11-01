@@ -46,7 +46,7 @@ Press **Connect Zoho** and Zoho asks you to allow DocFlow to create bills and ve
 
 ### 3. Upload an invoice
 
-Choose a PDF. It can be a normal digital PDF or a scanned image saved as PDF. The original stays on screen next to the extracted data, so the reviewer can compare them.
+Choose a PDF. It can be a normal digital PDF or a scanned image saved as PDF. The original stays on screen next to the extracted data, so the person reviewing can compare them.
 
 ![Upload and review](screenshots/upload1.png)
 
