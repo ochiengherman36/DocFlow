@@ -1,4 +1,5 @@
 import type { ExtractResult } from "@/lib/api";
+import { billOf } from "@/lib/zoho";
 import InvoiceEditor from "./invoice-editor";
 import PdfPreview from "./pdf-preview";
 
@@ -17,12 +18,13 @@ export default function ReviewLayout({
     <div className="mt-10 grid gap-8 lg:grid-cols-2">
       <PdfPreview url={fileUrl} name={fileName} />
       <div className="flex min-w-0 flex-col gap-8">
-        <InvoiceEditor 
-          invoice={result.invoice} 
-          documentId={result.document_id} 
+        <InvoiceEditor
+          invoice={result.invoice}
+          documentId={result.document_id}
           status={result.status}
-          initialFlags={result.flags} 
-          apiUrl={apiUrl} 
+          initialFlags={result.flags}
+          initialBill={billOf(result)}
+          apiUrl={apiUrl}
         />
       </div>
     </div>

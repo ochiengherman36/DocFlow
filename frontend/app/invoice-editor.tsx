@@ -15,11 +15,13 @@ import {
 } from "@/lib/api";
 import { toDraft, type Draft, type DraftLineItem, type DraftTotals } from "@/lib/draft";
 import { flagId, groupByField, lineField, toneOf, unplacedFlags, type Tone } from "@/lib/flags";
+import type { ZohoBill } from "@/lib/zoho";
 import DecisionPanel, { type Busy } from "./decision-panel";
 import FieldFlags from "./field-flags";
 import FlagList from "./flag-list";
 import HistoryPanel from "./history-panel";
 import StatusLine from "./status-line";
+import ZohoSendPanel from "./zoho-send-panel";
 
 const RECHECK_DELAY_MS = 400;
 
@@ -74,12 +76,14 @@ export default function InvoiceEditor({
   documentId,
   status: initialStatus,
   initialFlags,
+  initialBill,
   apiUrl,
 }: {
   invoice: Invoice;
   documentId: string;
   status: DocumentStatus;
   initialFlags: Flag[];
+  initialBill: ZohoBill | null;
   apiUrl: string;
 }) {
   const [draft, setDraft] = useState<Draft>(() => toDraft(invoice));
@@ -338,11 +342,20 @@ export default function InvoiceEditor({
           })}
         </div>
 
-        {status === "pending" && (
-          <DecisionPanel busy={busy} error={actionError} onApprove={approve} onReject={reject} />
-        )}
+                {status === "pending" && (
+                  <DecisionPanel busy={busy} error={actionError} onApprove={approve} onReject={reject} />
+                )}
 
-        <HistoryPanel apiUrl={apiUrl} documentId={documentId} version={historyVersion} />
+                {status === "approved" && (
+                  <ZohoSendPanel
+                    apiUrl={apiUrl}
+                    documentId={documentId}
+                    initialBill={initialBill}
+                    onSent={() => setHistoryVersion((version) => version + 1)}
+                  />
+                )}
+
+                <HistoryPanel apiUrl={apiUrl} documentId={documentId} version={historyVersion} />
 
         <details>
           <summary className="cursor-pointer text-sm text-zinc-600 dark:text-zinc-400">

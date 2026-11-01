@@ -8,6 +8,7 @@ const ACTIONS: Record<string, string> = {
   edited: "Edited",
   approved: "Approved",
   rejected: "Rejected",
+  sent_to_zoho: "Sent to Zoho Books",
 };
 
 const HEADER_FIELDS = ["supplier", "invoice_number", "date", "currency"];
@@ -93,6 +94,12 @@ export function entrySummary(entry: AuditEntry): string | null {
     }
     case "rejected":
       return typeof details.reason === "string" ? `Reason: ${details.reason}` : null;
+    case "sent_to_zoho": {
+      if (typeof details.bill_number !== "string") return null;
+      return details.recovered === true
+        ? `Linked the existing bill ${details.bill_number}`
+        : `Created bill ${details.bill_number}`;
+    }
     default:
       return null;
   }

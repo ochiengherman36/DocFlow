@@ -54,6 +54,10 @@ export type ExtractResult = {
   filename: string;
   invoice: Invoice;
   flags: Flag[];
+  zoho_bill_id?: string | null;
+  zoho_bill_url?: string | null;
+  zoho_sent_at?: string | null;
+  zoho_sent_by?: string | null;
 };
 
 export type SaveResult = {
@@ -94,6 +98,16 @@ export type ZohoStatus = {
 export type DisconnectResult = {
   was_connected: boolean;
   revoked: boolean;
+};
+
+export type SendResult = {
+  document_id: string;
+  zoho_bill_id: string;
+  zoho_bill_url: string | null;
+  zoho_sent_at: string | null;
+  zoho_sent_by: string | null;
+  already_sent: boolean;
+  recovered: boolean;
 };
 
 export class ApiError extends Error {}
@@ -266,4 +280,10 @@ export async function disconnectZoho(apiUrl: string): Promise<DisconnectResult> 
   const res = await send(`${apiUrl}/integrations/zoho`, { method: "DELETE" });
   if (!res.ok) throw new ApiError(await errorMessage(res));
   return readJson<DisconnectResult>(res);
+}
+
+export async function sendToZoho(apiUrl: string, documentId: string): Promise<SendResult> {
+  const res = await send(`${apiUrl}/documents/${encodeURIComponent(documentId)}/send-to-zoho`, { method: "POST" });
+  if (!res.ok) throw new ApiError(await errorMessage(res));
+  return readJson<SendResult>(res);
 }

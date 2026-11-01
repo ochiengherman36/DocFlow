@@ -35,3 +35,33 @@ export function formatConnectedAt(value: string | null): string | null {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
+
+export type ZohoBill = { id: string; url: string | null; sentAt: string | null; sentBy: string | null };
+
+type BillFields = {
+  zoho_bill_id?: string | null;
+  zoho_bill_url?: string | null;
+  zoho_sent_at?: string | null;
+  zoho_sent_by?: string | null;
+};
+
+export function billOf(source: BillFields): ZohoBill | null {
+  if (!source.zoho_bill_id) return null;
+  const url = source.zoho_bill_url ?? null;
+  return {
+    id: source.zoho_bill_id,
+    url: url && url.startsWith("https://") ? url : null,
+    sentAt: source.zoho_sent_at ?? null,
+    sentBy: source.zoho_sent_by ?? null,
+  };
+}
+
+export function connectionHint(message: string): string | null {
+  return /not connected|connect zoho again/i.test(message)
+    ? "Use Connect Zoho at the top of the page, then try sending again."
+    : null;
+}
+
+export function formatSentAt(value: string | null): string | null {
+  return formatConnectedAt(value);
+}
