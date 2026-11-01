@@ -170,7 +170,7 @@ uv run python -c "from cryptography.fernet import Fernet; print(Fernet.generate_
 
 ## Limits and next steps
 
-- **Real user login.** The passcode only keeps strangers from using the API. Everyone who knows it is the same user ("reviewer"). Next step: individual accounts with sign-in, so History shows the real person and different roles can be allowed (for example, only managers can send to Zoho).
+- **Real user login.** The passcode only protects the API. Everyone who knows it is the same user ("reviewer"). Next step: individual accounts with sign-in, so History shows the real person and different roles can be allowed (for example, only managers can send to Zoho).
 - The invoice due date is not read yet, so Zoho shows the bill as due on receipt.
 - Credit notes are not supported yet. DocFlow refuses to send them to Zoho rather than create a wrong bill.
 - One Zoho organization and one allowed web address.
